@@ -5,74 +5,265 @@ export interface Product {
   size: string
   description: string
   howToUse: string[]
+  benefits: string[]
   ingredients: string[]
   image: string
   slug: string
   inStock: boolean
+  stock_quantity: number
 }
 
-export const products: Product[] = [
-  {
-    id: "1",
-    name: "Mega Potent Hair Growth Oil",
-    price: 300,
-    size: "100ml",
-    description:
-      "Our signature hair growth oil formulated with premium natural ingredients to stimulate hair follicles and promote healthy hair growth. Perfect for those seeking to restore thickness and length to their hair naturally.",
-    howToUse: [
-      "Apply 3-5 drops to clean, damp hair",
-      "Massage gently into scalp using circular motions",
-      "Leave on for at least 30 minutes or overnight",
-      "Rinse with gentle shampoo",
-      "Use 2-3 times per week for best results",
-    ],
-    ingredients: [
-      "Rosemary Essential Oil",
-      "Peppermint Oil",
-      "Castor Oil",
-      "Jojoba Oil",
-      "Vitamin E",
-      "Biotin",
-      "Saw Palmetto Extract",
-    ],
-    image: "/placeholder.svg?height=400&width=400",
-    slug: "hair-growth-oil-100ml",
-    inStock: true,
-  },
-  {
-    id: "2",
-    name: "Scalp Detox Oil",
-    price: 260,
-    size: "65ml",
-    description:
-      "A purifying scalp treatment that removes buildup, balances oil production, and creates the optimal environment for healthy hair growth. Infused with clarifying botanicals and nourishing oils.",
-    howToUse: [
-      "Part hair into sections",
-      "Apply directly to scalp using the dropper",
-      "Massage thoroughly for 2-3 minutes",
-      "Leave on for 20-30 minutes",
-      "Shampoo twice to remove completely",
-      "Use once weekly for maintenance",
-    ],
-    ingredients: [
-      "Tea Tree Oil",
-      "Eucalyptus Oil",
-      "Apple Cider Vinegar",
-      "Argan Oil",
-      "Charcoal Extract",
-      "Lemon Essential Oil",
-      "Witch Hazel",
-    ],
-    image: "/placeholder.svg?height=400&width=400",
-    slug: "scalp-detox-oil-65ml",
-    inStock: true,
-  },
-]
+// API Configuration
+const API_BASE_URL = 'http://localhost/delightful/'
+// const API_BASE_URL = 'https://api.delightfulnaturals.co.za/'
 
-export function getProductBySlug(slug: string): Product | undefined {
-  return products.find((product) => product.slug === slug)
+
+
+// API Response interfaces
+interface ApiProduct {
+  id: string
+  name: string
+  slug: string
+  description: string | null
+  price: string
+  volume: string
+  stock_quantity: number
+  ingredients: string | null
+  usage_instructions: string | null
+  benefits: string | null
+  image_url: string | null
+  is_active: number
+  created_at: string
+  updated_at: string
 }
 
-export function getProductById(id: string): Product | undefined {
-  return products.find((product) => product.id === id)
+interface ApiResponse<T> {
+  success: boolean
+  data: T
+  total?: number
+  limit?: number
+  offset?: number
+  error?: string
+}
+
+// Transform API product to frontend Product format
+function transformProduct(apiProduct: ApiProduct): Product {
+  return {
+    id: apiProduct.id,
+    name: apiProduct.name,
+    price: parseFloat(apiProduct.price),
+    size: apiProduct.volume,
+    description: apiProduct.description || '',
+    howToUse: apiProduct.usage_instructions
+      ? JSON.parse(apiProduct.usage_instructions)
+      : [],
+    ingredients: apiProduct.ingredients
+      ? JSON.parse(apiProduct.ingredients)
+      : [],
+    benefits: apiProduct.benefits ? JSON.parse(apiProduct.benefits) : [],
+    image: apiProduct.image_url || '/placeholder.svg?height=400&width=400',
+    slug: apiProduct.slug,
+    stock_quantity: apiProduct.stock_quantity,
+    inStock: ((apiProduct.stock_quantity > 0) && (apiProduct.is_active == 1)),
+  }
+}
+
+
+
+// Fetch all products
+export async function getProducts(): Promise<Product[]> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/products.php?limit=10&offset=0`)
+    
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`)
+    }
+    
+    const result: ApiResponse<ApiProduct[]> = await response.json()
+    
+    if (result.success && result.data) {
+      return result.data.map(transformProduct)
+    }
+    
+    throw new Error(result.error || 'Failed to fetch products')
+  } catch (error) {
+    console.error('Error fetching products:', error)
+    return []
+  }
+}
+
+// Fetch product by slug
+export async function getProductBySlug(slug: string): Promise<Product | undefined> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/products.php?search=${encodeURIComponent(slug)}`)
+    
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`)
+    }
+    
+    const result: ApiResponse<ApiProduct[]> = await response.json()
+    
+    if (result.success && result.data && result.data.length > 0) {
+      const product = result.data.find(p => p.slug === slug)
+      return product ? transformProduct(product) : undefined
+    }
+    
+    return undefined
+  } catch (error) {
+    console.error('Error fetching product by slug:', error)
+    return undefined
+  }
+}
+
+// Fetch product by ID
+export async function getProductById(id: string): Promise<Product | undefined> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/products.php/${id}`)
+    
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`)
+    }
+    
+    const result: ApiResponse<ApiProduct> = await response.json()
+    
+    if (result.success && result.data) {
+      return transformProduct(result.data)
+    }
+    
+    return undefined
+  } catch (error) {
+    console.error('Error fetching product by ID:', error)
+    return undefined
+  }
+}
+
+// Create a new product (admin function)
+export async function createProduct(product: Omit<Product, 'id'>): Promise<Product | null> {
+  try {
+    const apiProduct = {
+      name: product.name,
+      slug: product.slug,
+      description: product.description,
+      price: product.price.toString(),
+      volume: product.size,
+      stock_quantity: product.stock_quantity,
+      ingredients: JSON.stringify(product.ingredients),
+      usage_instructions: JSON.stringify(product.howToUse),
+      benefits: JSON.stringify(product.benefits),
+      image_url: product.image !== '/placeholder.svg?height=400&width=400' ? product.image : null,
+      is_active: 1,
+    }
+    
+    // console.log('Creating product with data:', JSON.stringify(apiProduct))
+    const response = await fetch(`${API_BASE_URL}/products.php`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(apiProduct),
+    })
+    
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`)
+    }
+    
+    const result: ApiResponse<ApiProduct> = await response.json()
+    
+    if (result.success && result.data) {
+      return transformProduct(result.data)
+    }
+    
+    return null
+  } catch (error) {
+    console.error('Error creating product:', error)
+    return null
+  }
+}
+
+// Update a product (admin function)
+export async function updateProduct(id: string, updates: Partial<Product>): Promise<Product | null> {
+  try {
+    const apiUpdates: any = {}
+
+    if (updates.name) apiUpdates.name = updates.name
+    if (updates.slug) apiUpdates.slug = updates.slug
+    if (updates.description) apiUpdates.description = updates.description
+    if (updates.price) apiUpdates.price = updates.price.toString()
+    if (updates.size) apiUpdates.volume = updates.size
+    if (updates.inStock !== undefined) {
+      apiUpdates.is_active = updates.inStock ? 1 : 0
+    }
+    if (updates.ingredients) {
+      apiUpdates.ingredients = Array.isArray(updates.ingredients)
+        ? JSON.stringify(updates.ingredients)
+        : updates.ingredients
+    }
+    if (updates.howToUse) {
+      apiUpdates.usage_instructions = Array.isArray(updates.howToUse)
+        ? JSON.stringify(updates.howToUse)
+        : updates.howToUse
+    }
+    if (updates.benefits) {
+      apiUpdates.benefits = Array.isArray(updates.benefits)
+        ? JSON.stringify(updates.benefits)
+        : updates.benefits
+    }
+    if (updates.stock_quantity !== undefined) {
+      apiUpdates.stock_quantity = updates.stock_quantity
+    }
+    if (updates.image && updates.image !== '/placeholder.svg?height=400&width=400') {
+      apiUpdates.image_url = updates.image
+    }
+
+    const response = await fetch(`${API_BASE_URL}/products.php/${id}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(apiUpdates),
+    })
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`)
+    }
+
+    const result: ApiResponse<ApiProduct> = await response.json()
+
+    if (result.success && result.data) {
+      return transformProduct(result.data)
+    }
+
+    return null
+  } catch (error) {
+    console.error('Error updating product:', error)
+    return null
+  }
+}
+
+// Delete a product (admin function)
+export async function deleteProduct(id: string): Promise<boolean> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/products.php/${id}`, {
+      method: 'DELETE',
+    })
+    
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`)
+    }
+    
+    const result: ApiResponse<null> = await response.json()
+    return result.success
+  } catch (error) {
+    console.error('Error deleting product:', error)
+    return false
+  }
+}
+
+// Legacy export for backward compatibility - now fetches from API
+export let products: Product[] = []
+
+// Initialize products on module load (for SSR/initial load)
+// You may want to call this from your app initialization
+export async function initializeProducts(): Promise<void> {
+  products = await getProducts()
 }

@@ -210,7 +210,7 @@ export default function AdminDashboardPage() {
           <CardContent>
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
               <Button asChild className="h-auto p-4 flex-col">
-                <Link href="/admin/products">
+                <Link href="/admin/products/add">
                   <Plus className="h-6 w-6 mb-2" />
                   Add Product
                 </Link>
@@ -255,7 +255,7 @@ export default function AdminDashboardPage() {
                   <div className="flex-1">
                     <div className="flex items-center gap-3">
                       <div>
-                        <p className="font-medium">{order.id}</p>
+                        <p className="text-[12px] font-medium ">{order.id}</p>
                         <p className="text-sm text-muted-foreground">{order.customer}</p>
                       </div>
                       <Badge className={getStatusColor(order.status)}>{order.status}</Badge>
@@ -267,7 +267,7 @@ export default function AdminDashboardPage() {
                       {order.items} item{order.items !== 1 ? "s" : ""}
                     </p>
                   </div>
-                  <div className="text-right ml-4">
+                  <div className="hidden md:flex text-right ml-4">
                     <p className="text-sm text-muted-foreground">{order.date}</p>
                   </div>
                 </div>
