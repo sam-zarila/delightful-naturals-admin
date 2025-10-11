@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Search, Eye, Download, Filter } from "lucide-react"
 import Link from "next/link"
+import { API_BASE } from "@/lib/api"
 
 // API-backed orders state
 type ApiOrder = {
@@ -38,7 +39,7 @@ type Order = {
   paymentMethod?: string
 }
 
-const API_ENDPOINT = process.env.NEXT_PUBLIC_ORDERS_API || "http://localhost/delightful/orders.php"
+const API_ENDPOINT = API_BASE;
 
 function getStatusColor(status: string) {
   switch (status) {

@@ -1,4 +1,6 @@
-export const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://localhost/delightful";
+// export const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://localhost/delightful" ;
+export const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://api.delightfulnaturals.co.za" ;
+
 
 async function request(path: string, opts: RequestInit = {}) {
   const url = `${API_BASE}${path.startsWith("/") ? path : `/${path}`}`;

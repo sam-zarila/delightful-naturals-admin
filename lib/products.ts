@@ -1,3 +1,5 @@
+import { API_BASE } from "./api"
+
 export interface Product {
   id: string
   name: string
@@ -13,9 +15,8 @@ export interface Product {
   stock_quantity: number
 }
 
-// API Configuration
-// const API_BASE_URL = 'http://localhost/delightful/'
-const API_BASE_URL = 'https://api.delightfulnaturals.co.za/'
+
+const API_BASE_URL = API_BASE
 
 
 

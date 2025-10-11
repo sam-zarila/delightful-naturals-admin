@@ -9,7 +9,6 @@ import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Search, Eye, Mail, Phone, MapPin, ShoppingBag, Calendar, Filter } from "lucide-react"
 import Link from "next/link"
-
 import { fetchCustomers } from "@/lib/api"
 
 function getCustomerTier(totalSpent: number) {
