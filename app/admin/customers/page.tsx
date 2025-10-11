@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { AdminLayout } from "@/components/admin-layout"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -10,205 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Search, Eye, Mail, Phone, MapPin, ShoppingBag, Calendar, Filter } from "lucide-react"
 import Link from "next/link"
 
-// Mock customers data - in real app this would come from database
-const mockCustomers = [
-  {
-    id: "1",
-    firstName: "Thandiwe",
-    lastName: "Mthembu",
-    email: "thandiwe@example.com",
-    phone: "+27 82 123 4567",
-    joinDate: "2023-11-15",
-    totalOrders: 3,
-    totalSpent: 1120,
-    lastOrderDate: "2024-01-20",
-    status: "active",
-    addresses: [
-      {
-        id: "1",
-        type: "shipping",
-        address: "123 Main Street",
-        city: "Johannesburg",
-        province: "Gauteng",
-        postalCode: "2000",
-        country: "South Africa",
-        isDefault: true,
-      },
-    ],
-    orders: [
-      {
-        id: "ORD001",
-        date: "2024-01-20",
-        status: "processing",
-        total: 560,
-      },
-      {
-        id: "ORD006",
-        date: "2023-12-15",
-        status: "delivered",
-        total: 300,
-      },
-      {
-        id: "ORD010",
-        date: "2023-11-20",
-        status: "delivered",
-        total: 260,
-      },
-    ],
-  },
-  {
-    id: "2",
-    firstName: "Nomsa",
-    lastName: "Dlamini",
-    email: "nomsa@example.com",
-    phone: "+27 83 456 7890",
-    joinDate: "2023-10-22",
-    totalOrders: 2,
-    totalSpent: 600,
-    lastOrderDate: "2024-01-19",
-    status: "active",
-    addresses: [
-      {
-        id: "2",
-        type: "shipping",
-        address: "456 Oak Avenue",
-        city: "Cape Town",
-        province: "Western Cape",
-        postalCode: "8000",
-        country: "South Africa",
-        isDefault: true,
-      },
-    ],
-    orders: [
-      {
-        id: "ORD002",
-        date: "2024-01-19",
-        status: "shipped",
-        total: 300,
-      },
-      {
-        id: "ORD007",
-        date: "2023-11-10",
-        status: "delivered",
-        total: 300,
-      },
-    ],
-  },
-  {
-    id: "3",
-    firstName: "Lerato",
-    lastName: "Molefe",
-    email: "lerato@example.com",
-    phone: "+27 84 789 0123",
-    joinDate: "2023-12-05",
-    totalOrders: 1,
-    totalSpent: 260,
-    lastOrderDate: "2024-01-18",
-    status: "active",
-    addresses: [
-      {
-        id: "3",
-        type: "shipping",
-        address: "789 Pine Road",
-        city: "Durban",
-        province: "KwaZulu-Natal",
-        postalCode: "4000",
-        country: "South Africa",
-        isDefault: true,
-      },
-    ],
-    orders: [
-      {
-        id: "ORD003",
-        date: "2024-01-18",
-        status: "delivered",
-        total: 260,
-      },
-    ],
-  },
-  {
-    id: "4",
-    firstName: "Sipho",
-    lastName: "Ndaba",
-    email: "sipho@example.com",
-    phone: "+27 85 012 3456",
-    joinDate: "2023-09-18",
-    totalOrders: 4,
-    totalSpent: 1380,
-    lastOrderDate: "2024-01-17",
-    status: "active",
-    addresses: [
-      {
-        id: "4",
-        type: "shipping",
-        address: "321 Elm Street",
-        city: "Pretoria",
-        province: "Gauteng",
-        postalCode: "0001",
-        country: "South Africa",
-        isDefault: true,
-      },
-    ],
-    orders: [
-      {
-        id: "ORD004",
-        date: "2024-01-17",
-        status: "pending",
-        total: 600,
-      },
-      {
-        id: "ORD008",
-        date: "2023-12-20",
-        status: "delivered",
-        total: 260,
-      },
-      {
-        id: "ORD011",
-        date: "2023-11-05",
-        status: "delivered",
-        total: 260,
-      },
-      {
-        id: "ORD012",
-        date: "2023-10-15",
-        status: "delivered",
-        total: 260,
-      },
-    ],
-  },
-  {
-    id: "5",
-    firstName: "Zinhle",
-    lastName: "Khumalo",
-    email: "zinhle@example.com",
-    phone: "+27 86 345 6789",
-    joinDate: "2023-08-30",
-    totalOrders: 1,
-    totalSpent: 0,
-    lastOrderDate: "2024-01-16",
-    status: "inactive",
-    addresses: [
-      {
-        id: "5",
-        type: "shipping",
-        address: "654 Birch Lane",
-        city: "Port Elizabeth",
-        province: "Eastern Cape",
-        postalCode: "6000",
-        country: "South Africa",
-        isDefault: true,
-      },
-    ],
-    orders: [
-      {
-        id: "ORD005",
-        date: "2024-01-16",
-        status: "cancelled",
-        total: 560,
-      },
-    ],
-  },
-]
+import { fetchCustomers } from "@/lib/api"
 
 function getCustomerTier(totalSpent: number) {
   if (totalSpent >= 1000) return { tier: "VIP", color: "bg-purple-100 text-purple-800" }
@@ -220,25 +22,57 @@ function getCustomerTier(totalSpent: number) {
 export default function AdminCustomersPage() {
   const [searchTerm, setSearchTerm] = useState("")
   const [statusFilter, setStatusFilter] = useState("all")
+  const [customers, setCustomers] = useState<any[]>([])
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
-  const filteredCustomers = mockCustomers.filter((customer) => {
+  useEffect(() => {
+    let mounted = true
+    setLoading(true)
+    setError(null)
+    fetchCustomers()
+      .then((data) => {
+        // The PHP endpoint returns an array or an object; ensure array
+        const list = Array.isArray(data) ? data : (data && data.length ? data : [])
+        if (mounted) setCustomers(list)
+      })
+      .catch((err) => {
+        console.error(err)
+        if (mounted) setError(err?.payload?.error || err.message || "Failed to load customers")
+      })
+      .finally(() => mounted && setLoading(false))
+
+    return () => {
+      mounted = false
+    }
+  }, [])
+
+  const filteredCustomers = customers.filter((customer) => {
+    const first = (customer.first_name || customer.firstName || "").toString()
+    const last = (customer.last_name || customer.lastName || "").toString()
+    const email = (customer.email || "").toString()
+    const phone = (customer.phone || "").toString()
+
     const matchesSearch =
-      customer.firstName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      customer.lastName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      customer.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      customer.phone.includes(searchTerm)
+      first.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      last.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      email.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      phone.includes(searchTerm)
 
-    const matchesStatus = statusFilter === "all" || customer.status === statusFilter
+    const matchesStatus = statusFilter === "all" || (customer.status || "").toString() === statusFilter
 
     return matchesSearch && matchesStatus
   })
 
   const customerStats = {
-    total: mockCustomers.length,
-    active: mockCustomers.filter((c) => c.status === "active").length,
-    inactive: mockCustomers.filter((c) => c.status === "inactive").length,
-    totalRevenue: mockCustomers.reduce((sum, c) => sum + c.totalSpent, 0),
-    averageOrderValue: mockCustomers.reduce((sum, c) => sum + c.totalSpent, 0) / mockCustomers.length,
+    total: customers.length,
+    active: customers.filter((c) => (c.status || "") === "active").length,
+    inactive: customers.filter((c) => (c.status || "") === "inactive").length,
+    totalRevenue: customers.reduce((sum, c) => sum + Number(c.total_spent || c.totalSpent || 0), 0),
+    averageOrderValue:
+      customers.length > 0
+        ? customers.reduce((sum, c) => sum + Number(c.total_spent || c.totalSpent || 0), 0) / customers.length
+        : 0,
   }
 
   return (
@@ -326,68 +160,80 @@ export default function AdminCustomersPage() {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {filteredCustomers.map((customer) => {
-                const tier = getCustomerTier(customer.totalSpent)
-                return (
-                  <div
-                    key={customer.id}
-                    className="flex items-center justify-between p-4 border rounded-lg hover:bg-muted/50"
-                  >
-                    <div className="flex-1 space-y-2">
-                      <div className="flex items-center gap-4">
-                        <div>
-                          <p className="font-medium">
-                            {customer.firstName} {customer.lastName}
-                          </p>
-                          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                            <Mail className="h-3 w-3" />
-                            {customer.email}
+              {loading && (
+                <div className="text-center py-8">Loading customers...</div>
+              )}
+
+              {error && (
+                <div className="text-center py-8 text-red-600">Error: {error}</div>
+              )}
+
+              {!loading && !error &&
+                filteredCustomers.map((customer) => {
+                  const first = customer.first_name || customer.firstName || ""
+                  const last = customer.last_name || customer.lastName || ""
+                  const totalSpent = Number(customer.total_spent || customer.totalSpent || 0)
+                  const tier = getCustomerTier(totalSpent)
+                  return (
+                    <div
+                      key={customer.id || `${first}-${last}-${Math.random()}`}
+                      className="flex items-center justify-between p-4 border rounded-lg hover:bg-muted/50"
+                    >
+                      <div className="flex-1 space-y-2">
+                        <div className="flex items-center gap-4">
+                          <div>
+                            <p className="font-medium">
+                              {first} {last}
+                            </p>
+                            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                              <Mail className="h-3 w-3" />
+                              {customer.email}
+                            </div>
+                          </div>
+                          <Badge className={tier.color}>{tier.tier}</Badge>
+                          <Badge variant={(customer.status || "") === "active" ? "default" : "secondary"}>
+                            {customer.status}
+                          </Badge>
+                        </div>
+                        <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                          <div className="flex items-center gap-1">
+                            <Phone className="h-3 w-3" />
+                            {customer.phone}
+                          </div>
+                          <span>•</span>
+                          <div className="flex items-center gap-1">
+                            <MapPin className="h-3 w-3" />
+                            {customer.addresses?.[0]?.city}, {customer.addresses?.[0]?.province}
+                          </div>
+                          <span>•</span>
+                          <div className="flex items-center gap-1">
+                            <Calendar className="h-3 w-3" />
+                            Joined {customer.join_date || customer.joinDate}
                           </div>
                         </div>
-                        <Badge className={tier.color}>{tier.tier}</Badge>
-                        <Badge variant={customer.status === "active" ? "default" : "secondary"}>
-                          {customer.status}
-                        </Badge>
                       </div>
-                      <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                        <div className="flex items-center gap-1">
-                          <Phone className="h-3 w-3" />
-                          {customer.phone}
+                      <div className="flex items-center gap-6">
+                        <div className="text-right">
+                          <p className="font-medium">R{totalSpent.toLocaleString()}</p>
+                          <div className="flex items-center gap-1 text-sm text-muted-foreground">
+                            <ShoppingBag className="h-3 w-3" />
+                            {customer.total_orders || customer.totalOrders || 0} order{(customer.total_orders || customer.totalOrders || 0) !== 1 ? "s" : ""}
+                          </div>
                         </div>
-                        <span>•</span>
-                        <div className="flex items-center gap-1">
-                          <MapPin className="h-3 w-3" />
-                          {customer.addresses[0]?.city}, {customer.addresses[0]?.province}
+                        <div className="text-right">
+                          <p className="text-sm text-muted-foreground">Last order</p>
+                          <p className="text-sm font-medium">{customer.last_order_date || customer.lastOrderDate}</p>
                         </div>
-                        <span>•</span>
-                        <div className="flex items-center gap-1">
-                          <Calendar className="h-3 w-3" />
-                          Joined {customer.joinDate}
-                        </div>
+                        <Button asChild size="sm" variant="outline">
+                          <Link href={`/admin/customers/${customer.id || customer.ID}`}>
+                            <Eye className="mr-2 h-4 w-4" />
+                            View
+                          </Link>
+                        </Button>
                       </div>
                     </div>
-                    <div className="flex items-center gap-6">
-                      <div className="text-right">
-                        <p className="font-medium">R{customer.totalSpent.toLocaleString()}</p>
-                        <div className="flex items-center gap-1 text-sm text-muted-foreground">
-                          <ShoppingBag className="h-3 w-3" />
-                          {customer.totalOrders} order{customer.totalOrders !== 1 ? "s" : ""}
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-sm text-muted-foreground">Last order</p>
-                        <p className="text-sm font-medium">{customer.lastOrderDate}</p>
-                      </div>
-                      <Button asChild size="sm" variant="outline">
-                        <Link href={`/admin/customers/${customer.id}`}>
-                          <Eye className="mr-2 h-4 w-4" />
-                          View
-                        </Link>
-                      </Button>
-                    </div>
-                  </div>
-                )
-              })}
+                  )
+                })}
             </div>
 
             {filteredCustomers.length === 0 && (
