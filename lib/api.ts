@@ -1,9 +1,10 @@
-// export const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://localhost/delightful" ;
-export const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "https://api.delightfulnaturals.co.za" ;
-
+// Use the proxy endpoint instead of direct HTTP call
+export const API_BASE = "/api/proxy";
 
 async function request(path: string, opts: RequestInit = {}) {
-  const url = `${API_BASE}${path.startsWith("/") ? path : `/${path}`}`;
+  // Build the URL to hit your proxy, passing the original path as a query param
+  const url = `${API_BASE}?path=${encodeURIComponent(path)}`;
+  
   const res = await fetch(url, {
     headers: { "Content-Type": "application/json" },
     credentials: "include",
