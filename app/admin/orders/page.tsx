@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { AdminLayout } from "@/components/admin-layout"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -9,164 +9,37 @@ import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Search, Eye, Download, Filter } from "lucide-react"
 import Link from "next/link"
+import { API_BASE } from "@/lib/api"
 
-// Mock orders data - in real app this would come from database
-const mockOrders = [
-  {
-    id: "ORD001",
-    customer: {
-      name: "Thandiwe Mthembu",
-      email: "thandiwe@example.com",
-      phone: "+27 82 123 4567",
-    },
-    date: "2024-01-20",
-    status: "processing",
-    total: 560,
-    items: [
-      {
-        productId: "1",
-        productName: "Mega Potent Hair Growth Oil",
-        quantity: 1,
-        price: 300,
-        image: "/placeholder.svg?height=80&width=80",
-      },
-      {
-        productId: "2",
-        productName: "Scalp Detox Oil",
-        quantity: 1,
-        price: 260,
-        image: "/placeholder.svg?height=80&width=80",
-      },
-    ],
-    shippingAddress: {
-      address: "123 Main Street",
-      city: "Johannesburg",
-      province: "Gauteng",
-      postalCode: "2000",
-      country: "South Africa",
-    },
-    paymentMethod: "card",
-  },
-  {
-    id: "ORD002",
-    customer: {
-      name: "Nomsa Dlamini",
-      email: "nomsa@example.com",
-      phone: "+27 83 456 7890",
-    },
-    date: "2024-01-19",
-    status: "shipped",
-    total: 300,
-    items: [
-      {
-        productId: "1",
-        productName: "Mega Potent Hair Growth Oil",
-        quantity: 1,
-        price: 300,
-        image: "/placeholder.svg?height=80&width=80",
-      },
-    ],
-    shippingAddress: {
-      address: "456 Oak Avenue",
-      city: "Cape Town",
-      province: "Western Cape",
-      postalCode: "8000",
-      country: "South Africa",
-    },
-    paymentMethod: "eft",
-  },
-  {
-    id: "ORD003",
-    customer: {
-      name: "Lerato Molefe",
-      email: "lerato@example.com",
-      phone: "+27 84 789 0123",
-    },
-    date: "2024-01-18",
-    status: "delivered",
-    total: 260,
-    items: [
-      {
-        productId: "2",
-        productName: "Scalp Detox Oil",
-        quantity: 1,
-        price: 260,
-        image: "/placeholder.svg?height=80&width=80",
-      },
-    ],
-    shippingAddress: {
-      address: "789 Pine Road",
-      city: "Durban",
-      province: "KwaZulu-Natal",
-      postalCode: "4000",
-      country: "South Africa",
-    },
-    paymentMethod: "cod",
-  },
-  {
-    id: "ORD004",
-    customer: {
-      name: "Sipho Ndaba",
-      email: "sipho@example.com",
-      phone: "+27 85 012 3456",
-    },
-    date: "2024-01-17",
-    status: "pending",
-    total: 600,
-    items: [
-      {
-        productId: "1",
-        productName: "Mega Potent Hair Growth Oil",
-        quantity: 2,
-        price: 300,
-        image: "/placeholder.svg?height=80&width=80",
-      },
-    ],
-    shippingAddress: {
-      address: "321 Elm Street",
-      city: "Pretoria",
-      province: "Gauteng",
-      postalCode: "0001",
-      country: "South Africa",
-    },
-    paymentMethod: "card",
-  },
-  {
-    id: "ORD005",
-    customer: {
-      name: "Zinhle Khumalo",
-      email: "zinhle@example.com",
-      phone: "+27 86 345 6789",
-    },
-    date: "2024-01-16",
-    status: "cancelled",
-    total: 560,
-    items: [
-      {
-        productId: "1",
-        productName: "Mega Potent Hair Growth Oil",
-        quantity: 1,
-        price: 300,
-        image: "/placeholder.svg?height=80&width=80",
-      },
-      {
-        productId: "2",
-        productName: "Scalp Detox Oil",
-        quantity: 1,
-        price: 260,
-        image: "/placeholder.svg?height=80&width=80",
-      },
-    ],
-    shippingAddress: {
-      address: "654 Birch Lane",
-      city: "Port Elizabeth",
-      province: "Eastern Cape",
-      postalCode: "6000",
-      country: "South Africa",
-    },
-    paymentMethod: "eft",
-  },
-]
+// API-backed orders state
+type ApiOrder = {
+  order_id: string
+  total: number
+  subtotal?: number
+  shipping?: number
+  delivery_method?: string
+  payment_status?: string
+  payment_provider?: string
+  created_at?: string
+  first_name?: string
+  last_name?: string
+  email?: string
+  phone?: string
+  items?: Array<{ quantity: number; price: number; name?: string; volume?: string; image_url?: string }>
+}
+
+type Order = {
+  id: string
+  customer: { name: string; email: string; phone?: string }
+  date?: string
+  status?: string
+  total: number
+  items: Array<{ productId?: string; productName?: string; quantity: number; price: number; image?: string }>
+  shippingAddress: { city?: string; province?: string }
+  paymentMethod?: string
+}
+
+const API_ENDPOINT = API_BASE;
 
 function getStatusColor(status: string) {
   switch (status) {
@@ -202,11 +75,17 @@ export default function AdminOrdersPage() {
   const [searchTerm, setSearchTerm] = useState("")
   const [statusFilter, setStatusFilter] = useState("all")
 
-  const filteredOrders = mockOrders.filter((order) => {
+  const [orders, setOrders] = useState<Order[]>([])
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const filteredOrders = orders.filter((order) => {
+    const term = searchTerm.trim().toLowerCase()
     const matchesSearch =
-      order.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      order.customer.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      order.customer.email.toLowerCase().includes(searchTerm.toLowerCase())
+      term === "" ||
+      order.id.toLowerCase().includes(term) ||
+      order.customer.name.toLowerCase().includes(term) ||
+      order.customer.email.toLowerCase().includes(term)
 
     const matchesStatus = statusFilter === "all" || order.status === statusFilter
 
@@ -214,13 +93,60 @@ export default function AdminOrdersPage() {
   })
 
   const orderStats = {
-    total: mockOrders.length,
-    pending: mockOrders.filter((o) => o.status === "pending").length,
-    processing: mockOrders.filter((o) => o.status === "processing").length,
-    shipped: mockOrders.filter((o) => o.status === "shipped").length,
-    delivered: mockOrders.filter((o) => o.status === "delivered").length,
-    cancelled: mockOrders.filter((o) => o.status === "cancelled").length,
+    total: orders.length,
+    pending: orders.filter((o) => o.status === "pending").length,
+    processing: orders.filter((o) => o.status === "processing").length,
+    shipped: orders.filter((o) => o.status === "shipped").length,
+    delivered: orders.filter((o) => o.status === "delivered").length,
+    cancelled: orders.filter((o) => o.status === "cancelled").length,
   }
+
+  useEffect(() => {
+    let mounted = true
+    async function fetchOrders() {
+      setLoading(true)
+      setError(null)
+      try {
+        const res = await fetch(API_ENDPOINT)
+        if (!res.ok) throw new Error(`API error: ${res.status}`)
+        const data: ApiOrder[] = await res.json()
+
+        const mapped: Order[] = data.map((a) => {
+          const id = a.order_id ?? String(Math.random()).slice(2, 8)
+          const customerName = `${a.first_name ?? ""} ${a.last_name ?? ""}`.trim() || (a.email ?? "Unknown")
+          const items = (a.items ?? []).map((it) => ({
+            productId: undefined,
+            productName: it.name ?? it.volume ?? "Product",
+            quantity: it.quantity ?? 1,
+            price: it.price ?? 0,
+            image: it.image_url ?? "/placeholder.svg?height=80&width=80",
+          }))
+
+          return {
+            id,
+            customer: { name: customerName, email: a.email ?? "", phone: a.phone },
+            date: a.created_at ?? undefined,
+            status: (a.payment_status ?? "pending").toLowerCase(),
+            total: a.total ?? 0,
+            items,
+            shippingAddress: { city: undefined, province: undefined },
+            paymentMethod: (a.payment_provider ?? "unknown").toLowerCase(),
+          }
+        })
+
+        if (mounted) setOrders(mapped)
+      } catch (err: any) {
+        if (mounted) setError(err.message || String(err))
+      } finally {
+        if (mounted) setLoading(false)
+      }
+    }
+
+    fetchOrders()
+    return () => {
+      mounted = false
+    }
+  }, [])
 
   return (
     <AdminLayout>
@@ -315,6 +241,14 @@ export default function AdminOrdersPage() {
             <CardDescription>Recent customer orders and their status</CardDescription>
           </CardHeader>
           <CardContent>
+            {loading && (
+              <div className="text-center py-8">Loading orders...</div>
+            )}
+
+            {error && (
+              <div className="text-center py-8 text-red-600">Error loading orders: {error}</div>
+            )}
+
             <div className="space-y-4">
               {filteredOrders.map((order) => (
                 <div
@@ -327,8 +261,8 @@ export default function AdminOrdersPage() {
                         <p className="font-medium">{order.id}</p>
                         <p className="text-sm text-muted-foreground">{order.customer.name}</p>
                       </div>
-                      <Badge className={getStatusColor(order.status)}>{order.status}</Badge>
-                      <Badge variant="outline">{getPaymentMethodLabel(order.paymentMethod)}</Badge>
+                      <Badge className={getStatusColor(order.status ?? "")}>{order.status ?? "unknown"}</Badge>
+                      <Badge variant="outline">{getPaymentMethodLabel(order.paymentMethod ?? "")}</Badge>
                     </div>
                     <div className="flex items-center gap-4 text-sm text-muted-foreground">
                       <span>{order.date}</span>
