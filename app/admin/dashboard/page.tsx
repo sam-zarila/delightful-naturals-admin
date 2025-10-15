@@ -16,6 +16,8 @@ import {
   Eye,
   Plus,
   AlertCircle,
+  MessageSquare,
+  BookOpen,
 } from "lucide-react"
 import Link from "next/link"
 
@@ -32,46 +34,12 @@ const dashboardData = {
     productsChange: 0,
   },
   recentOrders: [
-    {
-      id: "ORD001",
-      customer: "Thandiwe Mthembu",
-      total: 560,
-      status: "processing",
-      date: "2024-01-20",
-      items: 2,
-    },
-    {
-      id: "ORD002",
-      customer: "Nomsa Dlamini",
-      total: 300,
-      status: "shipped",
-      date: "2024-01-19",
-      items: 1,
-    },
-    {
-      id: "ORD003",
-      customer: "Lerato Molefe",
-      total: 260,
-      status: "delivered",
-      date: "2024-01-18",
-      items: 1,
-    },
-    {
-      id: "ORD004",
-      customer: "Sipho Ndaba",
-      total: 600,
-      status: "pending",
-      date: "2024-01-17",
-      items: 2,
-    },
+    { id: "ORD001", customer: "Thandiwe Mthembu", total: 560, status: "processing", date: "2024-01-20", items: 2 },
+    { id: "ORD002", customer: "Nomsa Dlamini", total: 300, status: "shipped", date: "2024-01-19", items: 1 },
+    { id: "ORD003", customer: "Lerato Molefe", total: 260, status: "delivered", date: "2024-01-18", items: 1 },
+    { id: "ORD004", customer: "Sipho Ndaba", total: 600, status: "pending", date: "2024-01-17", items: 2 },
   ],
-  lowStockAlerts: [
-    {
-      product: "Mega Potent Hair Growth Oil",
-      stock: 5,
-      threshold: 10,
-    },
-  ],
+  lowStockAlerts: [{ product: "Mega Potent Hair Growth Oil", stock: 5, threshold: 10 }],
 }
 
 function MetricCard({
@@ -88,7 +56,6 @@ function MetricCard({
   prefix?: string
 }) {
   const isPositive = change >= 0
-
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -174,63 +141,61 @@ export default function AdminDashboardPage() {
 
         {/* Metrics Grid */}
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-          <MetricCard
-            title="Total Revenue"
-            value={metrics.totalRevenue}
-            change={metrics.revenueChange}
-            icon={DollarSign}
-            prefix="R"
-          />
-          <MetricCard
-            title="Total Orders"
-            value={metrics.totalOrders}
-            change={metrics.ordersChange}
-            icon={ShoppingCart}
-          />
-          <MetricCard
-            title="Total Customers"
-            value={metrics.totalCustomers}
-            change={metrics.customersChange}
-            icon={Users}
-          />
-          <MetricCard
-            title="Total Products"
-            value={metrics.totalProducts}
-            change={metrics.productsChange}
-            icon={Package}
-          />
+          <MetricCard title="Total Revenue" value={metrics.totalRevenue} change={metrics.revenueChange} icon={DollarSign} prefix="R" />
+          <MetricCard title="Total Orders" value={metrics.totalOrders} change={metrics.ordersChange} icon={ShoppingCart} />
+          <MetricCard title="Total Customers" value={metrics.totalCustomers} change={metrics.customersChange} icon={Users} />
+          <MetricCard title="Total Products" value={metrics.totalProducts} change={metrics.productsChange} icon={Package} />
         </div>
 
-        {/* Quick Actions */}
+        {/* Quick Actions (now includes Testimonials & Journal) */}
         <Card>
           <CardHeader>
             <CardTitle>Quick Actions</CardTitle>
             <CardDescription>Common tasks and shortcuts</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+            <div className="grid gap-4 md:grid-cols-3 lg:grid-cols-6">
               <Button asChild className="h-auto p-4 flex-col">
                 <Link href="/admin/products/add">
                   <Plus className="h-6 w-6 mb-2" />
                   Add Product
                 </Link>
               </Button>
+
               <Button asChild variant="outline" className="h-auto p-4 flex-col bg-transparent">
                 <Link href="/admin/orders">
                   <Eye className="h-6 w-6 mb-2" />
                   View Orders
                 </Link>
               </Button>
+
               <Button asChild variant="outline" className="h-auto p-4 flex-col bg-transparent">
                 <Link href="/admin/customers">
                   <Users className="h-6 w-6 mb-2" />
                   Manage Customers
                 </Link>
               </Button>
+
               <Button asChild variant="outline" className="h-auto p-4 flex-col bg-transparent">
                 <Link href="/">
                   <Eye className="h-6 w-6 mb-2" />
                   View Store
+                </Link>
+              </Button>
+
+              {/* NEW: Manage Testimonials */}
+              <Button asChild variant="outline" className="h-auto p-4 flex-col bg-transparent">
+                <Link href="/admin/testimonials">
+                  <MessageSquare className="h-6 w-6 mb-2" />
+                  Manage Testimonials
+                </Link>
+              </Button>
+
+              {/* NEW: Manage Journal */}
+              <Button asChild variant="outline" className="h-auto p-4 flex-col bg-transparent">
+                <Link href="/admin/journal">
+                  <BookOpen className="h-6 w-6 mb-2" />
+                  Manage Journal
                 </Link>
               </Button>
             </div>
@@ -255,7 +220,7 @@ export default function AdminDashboardPage() {
                   <div className="flex-1">
                     <div className="flex items-center gap-3">
                       <div>
-                        <p className="text-[12px] font-medium ">{order.id}</p>
+                        <p className="text-[12px] font-medium">{order.id}</p>
                         <p className="text-sm text-muted-foreground">{order.customer}</p>
                       </div>
                       <Badge className={getStatusColor(order.status)}>{order.status}</Badge>
