@@ -1,45 +1,87 @@
-"use client"
-
-import { useEffect, useState } from "react"
 import { AdminLayout } from "@/components/admin-layout"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Search, Eye, Download, Filter } from "lucide-react"
+import { Edit, Mail, Phone, MapPin, Package, User, RefreshCw } from "lucide-react"
 import Link from "next/link"
-import { API_BASE } from "@/lib/api"
+import { doc, getDoc, updateDoc } from "firebase/firestore/lite"
+import { firestore } from "@/lib/firebase-client"
 
-// API-backed orders state
-type ApiOrder = {
-  order_id: string
-  total: number
-  subtotal?: number
-  shipping?: number
-  delivery_method?: string
-  payment_status?: string
-  payment_provider?: string
-  created_at?: string
-  first_name?: string
-  last_name?: string
-  email?: string
-  phone?: string
-  items?: Array<{ quantity: number; price: number; name?: string; volume?: string; image_url?: string }>
+type Product = {
+  id: string;
+  name: string;
+  price: number; // ZAR
+  currency: 'R';
+  img: string;
+};
+
+const CATALOG: Record<string, Product> = {
+  'growth-100': {
+    id: 'growth-100',
+    name: 'Hair Growth Oil · 100ml',
+    price: 300,
+    currency: 'R',
+    img: '/products/hair-growth-oil-100ml.png',
+  },
+  'detox-60': {
+    id: 'detox-60',
+    name: 'Scalp Detox Oil · 60ml',
+    price: 260,
+    currency: 'R',
+    img: '/products/scalp-detox-oil-60ml.png',
+  },
+};
+
+type OrderData = {
+  customer: {
+    name: string;
+    email: string;
+    phone?: string;
+    shipping: 'courier' | 'pickup';
+    address?: {
+      city: string;
+      province: string;
+      line1: string;
+      line2?: string;
+      postalCode: string;
+    };
+    notes?: string;
+  };
+  items: Array<{
+    id: string;
+    name: string;
+    price: number;
+    qty: number;
+    lineTotal: number;
+  }>;
+  totals: {
+    subtotal: number;
+    shipping: number;
+    grandTotal: number;
+  };
+  status: string;
+  createdAt: any; // Timestamp
+};
+
+type OrderItem = {
+  productId: string;
+  productName: string;
+  quantity: number;
+  price: number;
+  image: string;
 }
 
 type Order = {
   id: string
-  customer: { name: string; email: string; phone?: string }
+  customer: { name: string; email: string; phone?: string; shipping: 'courier' | 'pickup'; notes?: string; address?: { city: string; province: string; line1: string; line2?: string; postalCode: string } }
   date?: string
-  status?: string
+  status: string
   total: number
-  items: Array<{ productId?: string; productName?: string; quantity: number; price: number; image?: string }>
+  items: OrderItem[]
   shippingAddress: { city?: string; province?: string }
-  paymentMethod?: string
+  paymentMethod: string
 }
-
-const API_ENDPOINT = API_BASE;
 
 function getStatusColor(status: string) {
   switch (status) {
@@ -58,95 +100,87 @@ function getStatusColor(status: string) {
   }
 }
 
-function getPaymentMethodLabel(method: string) {
-  switch (method) {
-    case "card":
-      return "Credit Card"
-    case "eft":
-      return "EFT Transfer"
-    case "cod":
-      return "Cash on Delivery"
-    default:
-      return method
+async function fetchOrder(id: string): Promise<Order | null> {
+  try {
+    const docRef = doc(firestore, 'orders', id)
+    const docSnap = await getDoc(docRef)
+    if (docSnap.exists()) {
+      const data = docSnap.data() as OrderData
+      const customer = data.customer
+      const items = data.items.map((it) => ({
+        productId: it.id,
+        productName: it.name,
+        quantity: it.qty,
+        price: it.price,
+        image: CATALOG[it.id]?.img || '/placeholder.svg?height=80&width=80',
+      }))
+
+      const shippingAddress = customer.shipping === 'courier' && customer.address ? {
+        city: customer.address.city,
+        province: customer.address.province,
+      } : { city: undefined, province: undefined }
+
+      return {
+        id,
+        customer: { 
+          name: customer.name, 
+          email: customer.email, 
+          phone: customer.phone,
+          shipping: customer.shipping,
+          notes: customer.notes,
+          address: customer.address
+        },
+        date: data.createdAt ? data.createdAt.toDate().toLocaleDateString() : undefined,
+        status: data.status,
+        total: data.totals.grandTotal,
+        items,
+        shippingAddress,
+        paymentMethod: 'paystack',
+      }
+    }
+    return null;
+  } catch (err: any) {
+    console.error('Error fetching order:', err);
+    return null;
   }
 }
 
-export default function AdminOrdersPage() {
-  const [searchTerm, setSearchTerm] = useState("")
-  const [statusFilter, setStatusFilter] = useState("all")
+async function updateOrderStatus(id: string, newStatus: string): Promise<boolean> {
+  try {
+    const docRef = doc(firestore, 'orders', id)
+    await updateDoc(docRef, { status: newStatus })
+    return true;
+  } catch (err: any) {
+    console.error('Error updating status:', err);
+    return false;
+  }
+}
 
-  const [orders, setOrders] = useState<Order[]>([])
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+export default async function OrderDetailsPage({ params }: { params: Promise<{ id: string }> }) {
+  const resolvedParams = await params;
+  const { id } = resolvedParams;
 
-  const filteredOrders = orders.filter((order) => {
-    const term = searchTerm.trim().toLowerCase()
-    const matchesSearch =
-      term === "" ||
-      order.id.toLowerCase().includes(term) ||
-      order.customer.name.toLowerCase().includes(term) ||
-      order.customer.email.toLowerCase().includes(term)
+  const order = await fetchOrder(id);
 
-    const matchesStatus = statusFilter === "all" || order.status === statusFilter
-
-    return matchesSearch && matchesStatus
-  })
-
-  const orderStats = {
-    total: orders.length,
-    pending: orders.filter((o) => o.status === "pending").length,
-    processing: orders.filter((o) => o.status === "processing").length,
-    shipped: orders.filter((o) => o.status === "shipped").length,
-    delivered: orders.filter((o) => o.status === "delivered").length,
-    cancelled: orders.filter((o) => o.status === "cancelled").length,
+  if (!order) {
+    return (
+      <AdminLayout>
+        <div className="flex items-center justify-center min-h-[400px]">
+          <div className="text-center text-red-600">Error: Order not found</div>
+        </div>
+      </AdminLayout>
+    )
   }
 
-  useEffect(() => {
-    let mounted = true
-    async function fetchOrders() {
-      setLoading(true)
-      setError(null)
-      try {
-        const res = await fetch(API_ENDPOINT)
-        if (!res.ok) throw new Error(`API error: ${res.status}`)
-        const data: ApiOrder[] = await res.json()
-
-        const mapped: Order[] = data.map((a) => {
-          const id = a.order_id ?? String(Math.random()).slice(2, 8)
-          const customerName = `${a.first_name ?? ""} ${a.last_name ?? ""}`.trim() || (a.email ?? "Unknown")
-          const items = (a.items ?? []).map((it) => ({
-            productId: undefined,
-            productName: it.name ?? it.volume ?? "Product",
-            quantity: it.quantity ?? 1,
-            price: it.price ?? 0,
-            image: it.image_url ?? "/placeholder.svg?height=80&width=80",
-          }))
-
-          return {
-            id,
-            customer: { name: customerName, email: a.email ?? "", phone: a.phone },
-            date: a.created_at ?? undefined,
-            status: (a.payment_status ?? "pending").toLowerCase(),
-            total: a.total ?? 0,
-            items,
-            shippingAddress: { city: undefined, province: undefined },
-            paymentMethod: (a.payment_provider ?? "unknown").toLowerCase(),
-          }
-        })
-
-        if (mounted) setOrders(mapped)
-      } catch (err: any) {
-        if (mounted) setError(err.message || String(err))
-      } finally {
-        if (mounted) setLoading(false)
-      }
+  const handleStatusChange = async (newStatus: string) => {
+    const success = await updateOrderStatus(id, newStatus);
+    if (success) {
+      // In a real app, you'd refetch or use state, but since this is server-rendered, reload the page
+      window.location.reload();
+    } else {
+      alert('Failed to update status');
     }
-
-    fetchOrders()
-    return () => {
-      mounted = false
-    }
-  }, [])
+  };
 
   return (
     <AdminLayout>
@@ -154,149 +188,166 @@ export default function AdminOrdersPage() {
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold text-charcoal">Orders</h1>
-            <p className="text-muted-foreground">Manage customer orders and fulfillment</p>
+            <h1 className="text-3xl font-bold text-charcoal">Order #{order.id}</h1>
+            <p className="text-muted-foreground">Order details and fulfillment</p>
           </div>
-          <Button variant="outline">
-            <Download className="mr-2 h-4 w-4" />
-            Export Orders
-          </Button>
+          <div className="flex items-center gap-2">
+            <Link href="/admin/orders" className="text-sm text-muted-foreground hover:underline">
+              ← Back to Orders
+            </Link>
+          </div>
         </div>
 
-        {/* Order Stats */}
-        <div className="grid gap-4 md:grid-cols-3 lg:grid-cols-6">
+        {/* Order Summary */}
+        <div className="grid lg:grid-cols-3 gap-6">
+          {/* Left: Customer Info */}
           <Card>
-            <CardContent className="pt-6">
-              <div className="text-2xl font-bold">{orderStats.total}</div>
-              <p className="text-xs text-muted-foreground">Total Orders</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-6">
-              <div className="text-2xl font-bold text-yellow-600">{orderStats.pending}</div>
-              <p className="text-xs text-muted-foreground">Pending</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-6">
-              <div className="text-2xl font-bold text-blue-600">{orderStats.processing}</div>
-              <p className="text-xs text-muted-foreground">Processing</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-6">
-              <div className="text-2xl font-bold text-purple-600">{orderStats.shipped}</div>
-              <p className="text-xs text-muted-foreground">Shipped</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-6">
-              <div className="text-2xl font-bold text-green-600">{orderStats.delivered}</div>
-              <p className="text-xs text-muted-foreground">Delivered</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-6">
-              <div className="text-2xl font-bold text-red-600">{orderStats.cancelled}</div>
-              <p className="text-xs text-muted-foreground">Cancelled</p>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Search and Filters */}
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center space-x-4">
-              <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
-                <Input
-                  placeholder="Search orders, customers, or emails..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-10"
-                />
-              </div>
-              <Select value={statusFilter} onValueChange={setStatusFilter}>
-                <SelectTrigger className="w-48">
-                  <Filter className="mr-2 h-4 w-4" />
-                  <SelectValue placeholder="Filter by status" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Orders</SelectItem>
-                  <SelectItem value="pending">Pending</SelectItem>
-                  <SelectItem value="processing">Processing</SelectItem>
-                  <SelectItem value="shipped">Shipped</SelectItem>
-                  <SelectItem value="delivered">Delivered</SelectItem>
-                  <SelectItem value="cancelled">Cancelled</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Orders List */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Orders ({filteredOrders.length})</CardTitle>
-            <CardDescription>Recent customer orders and their status</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {loading && (
-              <div className="text-center py-8">Loading orders...</div>
-            )}
-
-            {error && (
-              <div className="text-center py-8 text-red-600">Error loading orders: {error}</div>
-            )}
-
-            <div className="space-y-4">
-              {filteredOrders.map((order) => (
-                <div
-                  key={order.id}
-                  className="flex items-center justify-between p-4 border rounded-lg hover:bg-muted/50"
-                >
-                  <div className="flex-1 space-y-2">
-                    <div className="flex items-center gap-4">
-                      <div>
-                        <p className="font-medium">{order.id}</p>
-                        <p className="text-sm text-muted-foreground">{order.customer.name}</p>
-                      </div>
-                      <Badge className={getStatusColor(order.status ?? "")}>{order.status ?? "unknown"}</Badge>
-                      <Badge variant="outline">{getPaymentMethodLabel(order.paymentMethod ?? "")}</Badge>
-                    </div>
-                    <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                      <span>{order.date}</span>
-                      <span>•</span>
-                      <span>
-                        {order.items.length} item{order.items.length !== 1 ? "s" : ""}
-                      </span>
-                      <span>•</span>
-                      <span>
-                        {order.shippingAddress.city}, {order.shippingAddress.province}
-                      </span>
-                    </div>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <User className="h-4 w-4" />
+                Customer Information
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="font-medium">Name:</span>
+                  <span>{order.customer.name}</span>
+                </div>
+                <div className="flex items-center gap-2 text-sm">
+                  <Mail className="h-4 w-4 text-muted-foreground" />
+                  <span>{order.customer.email}</span>
+                </div>
+                {order.customer.phone && (
+                  <div className="flex items-center gap-2 text-sm">
+                    <Phone className="h-4 w-4 text-muted-foreground" />
+                    <span>{order.customer.phone}</span>
                   </div>
-                  <div className="flex items-center gap-4">
-                    <div className="text-right">
-                      <p className="font-medium">R{order.total}</p>
-                      <p className="text-sm text-muted-foreground">{order.customer.email}</p>
-                    </div>
-                    <Button asChild size="sm" variant="outline">
-                      <Link href={`/admin/orders/${order.id}`}>
-                        <Eye className="mr-2 h-4 w-4" />
-                        View
-                      </Link>
-                    </Button>
+                )}
+                <div className="flex items-center gap-2 text-sm">
+                  <Package className="h-4 w-4 text-muted-foreground" />
+                  <span className="capitalize">{order.customer.shipping}</span>
+                </div>
+              </div>
+
+              {order.customer.address && (
+                <div className="space-y-2 pt-4 border-t">
+                  <h4 className="font-medium flex items-center gap-2">
+                    <MapPin className="h-4 w-4" />
+                    Shipping Address
+                  </h4>
+                  <div className="text-sm space-y-1">
+                    <p>{order.customer.address.line1}</p>
+                    {order.customer.address.line2 && <p>{order.customer.address.line2}</p>}
+                    <p>{order.customer.address.city}, {order.customer.address.province}</p>
+                    <p>{order.customer.address.postalCode}</p>
+                  </div>
+                </div>
+              )}
+
+              {order.customer.notes && (
+                <div className="space-y-2 pt-4 border-t">
+                  <h4 className="font-medium">Notes</h4>
+                  <p className="text-sm text-muted-foreground italic">{order.customer.notes}</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Middle: Status & Totals */}
+          <Card className="lg:col-span-1">
+            <CardHeader>
+              <CardTitle>Order Summary</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-muted-foreground">Date:</span>
+                <span>{order.date}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-muted-foreground">Status:</span>
+                <Badge className={getStatusColor(order.status)}>{order.status}</Badge>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-muted-foreground">Payment:</span>
+                <Badge variant="outline">Paystack</Badge>
+              </div>
+              <div className="space-y-2 pt-4 border-t">
+                <div className="flex justify-between text-sm">
+                  <span>Subtotal</span>
+                  <span>R{(order.total - (order.customer.shipping === 'courier' ? 80 : 0)).toLocaleString()}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span>Shipping</span>
+                  <span>{order.customer.shipping === 'courier' ? 'R80' : 'Free'}</span>
+                </div>
+                <div className="flex justify-between font-bold text-lg border-t pt-2">
+                  <span>Total</span>
+                  <span>R{order.total.toLocaleString()}</span>
+                </div>
+              </div>
+              <div className="pt-4">
+                <Select value={order.status} onValueChange={handleStatusChange}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="pending">Pending</SelectItem>
+                    <SelectItem value="processing">Processing</SelectItem>
+                    <SelectItem value="shipped">Shipped</SelectItem>
+                    <SelectItem value="delivered">Delivered</SelectItem>
+                    <SelectItem value="cancelled">Cancelled</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Right: Items List */}
+          <Card className="lg:col-span-1">
+            <CardHeader>
+              <CardTitle>Items ({order.items.length})</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {order.items.map((item, index) => (
+                <div key={index} className="flex items-center gap-3 p-3 border rounded-lg">
+                  <img src={item.image} alt={item.productName} className="w-12 h-12 rounded object-cover" />
+                  <div className="flex-1">
+                    <p className="font-medium">{item.productName}</p>
+                    <p className="text-sm text-muted-foreground">Qty: {item.quantity}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="font-medium">R{(item.price * item.quantity).toLocaleString()}</p>
                   </div>
                 </div>
               ))}
-            </div>
+            </CardContent>
+          </Card>
+        </div>
 
-            {filteredOrders.length === 0 && (
-              <div className="text-center py-12">
-                <p className="text-muted-foreground">No orders found matching your criteria.</p>
-              </div>
-            )}
+        {/* Actions */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Actions</CardTitle>
+            <CardDescription>Quick actions for this order</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" onClick={() => window.open(`mailto:${order.customer.email}?subject=Re: Order #${order.id}`, '_blank')}>
+                <Edit className="mr-2 h-4 w-4" />
+                Send Email
+              </Button>
+              {order.customer.phone && (
+                <Button variant="outline" onClick={() => window.open(`tel:${order.customer.phone}`, '_blank')}>
+                  <Phone className="mr-2 h-4 w-4" />
+                  Call Customer
+                </Button>
+              )}
+              <Button variant="outline" onClick={() => window.location.reload()}>
+                <RefreshCw className="mr-2 h-4 w-4" />
+                Refresh
+              </Button>
+            </div>
           </CardContent>
         </Card>
       </div>

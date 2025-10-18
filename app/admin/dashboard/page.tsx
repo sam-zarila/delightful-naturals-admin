@@ -1,7 +1,6 @@
 "use client"
 
-import type React from "react"
-
+import { useEffect, useState } from "react"
 import { AdminLayout } from "@/components/admin-layout"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -18,70 +17,77 @@ import {
   AlertCircle,
   MessageSquare,
   BookOpen,
+  RefreshCw,
 } from "lucide-react"
 import Link from "next/link"
+import { collection, getDocs, query, orderBy } from "firebase/firestore/lite"
+import { firestore } from "@/lib/firebase-client"
 
-// Mock data for dashboard
-const dashboardData = {
-  metrics: {
-    totalRevenue: 45600,
-    revenueChange: 12.5,
-    totalOrders: 156,
-    ordersChange: 8.2,
-    totalCustomers: 89,
-    customersChange: 15.3,
-    totalProducts: 2,
-    productsChange: 0,
-  },
-  recentOrders: [
-    { id: "ORD001", customer: "Thandiwe Mthembu", total: 560, status: "processing", date: "2024-01-20", items: 2 },
-    { id: "ORD002", customer: "Nomsa Dlamini", total: 300, status: "shipped", date: "2024-01-19", items: 1 },
-    { id: "ORD003", customer: "Lerato Molefe", total: 260, status: "delivered", date: "2024-01-18", items: 1 },
-    { id: "ORD004", customer: "Sipho Ndaba", total: 600, status: "pending", date: "2024-01-17", items: 2 },
-  ],
-  lowStockAlerts: [{ product: "Mega Potent Hair Growth Oil", stock: 5, threshold: 10 }],
+type OrderData = {
+  id?: string;
+  customer: {
+    name: string;
+    email: string;
+    phone?: string;
+    shipping: 'courier' | 'pickup';
+    address?: {
+      city: string;
+      province: string;
+      line1: string;
+      line2?: string;
+      postalCode: string;
+    };
+    notes?: string;
+  };
+  items: Array<{
+    id: string;
+    name: string;
+    price: number;
+    qty: number;
+    lineTotal: number;
+  }>;
+  totals: {
+    subtotal: number;
+    shipping: number;
+    grandTotal: number;
+  };
+  status: string;
+  createdAt: any; // Timestamp
+};
+
+type ProductData = {
+  id: string;
+  name: string;
+  price: number;
+  size: string;
+  inStock: boolean;
+  blurb: string;
+  howToUse: string[];
+  benefits: string[];
+  gallery?: string[];
+  rating: number;
+  reviews: number;
+  updatedAt: number;
+};
+
+type DashboardMetrics = {
+  totalRevenue: number;
+  revenueChange: number;
+  totalOrders: number;
+  ordersChange: number;
+  totalCustomers: number;
+  customersChange: number;
+  totalProducts: number;
+  productsChange: number;
 }
 
-function MetricCard({
-  title,
-  value,
-  change,
-  icon: Icon,
-  prefix = "",
-}: {
-  title: string
-  value: number
-  change: number
-  icon: React.ElementType
-  prefix?: string
-}) {
-  const isPositive = change >= 0
-  return (
-    <Card>
-      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-        <CardTitle className="text-sm font-medium">{title}</CardTitle>
-        <Icon className="h-4 w-4 text-muted-foreground" />
-      </CardHeader>
-      <CardContent>
-        <div className="text-2xl font-bold">
-          {prefix}
-          {value.toLocaleString()}
-        </div>
-        <p className="text-xs text-muted-foreground flex items-center mt-1">
-          {isPositive ? (
-            <TrendingUp className="h-3 w-3 mr-1 text-green-600" />
-          ) : (
-            <TrendingDown className="h-3 w-3 mr-1 text-red-600" />
-          )}
-          <span className={isPositive ? "text-green-600" : "text-red-600"}>
-            {isPositive ? "+" : ""}
-            {change}%
-          </span>
-          <span className="ml-1">from last month</span>
-        </p>
-      </CardContent>
-    </Card>
-  )
+type RecentOrder = {
+  id: string;
+  customer: string;
+  total: number;
+  status: string;
+  date: string;
+  items: number;
 }
 
 function getStatusColor(status: string) {
@@ -101,8 +107,148 @@ function getStatusColor(status: string) {
   }
 }
 
+function computeMetrics(orders: OrderData[]): DashboardMetrics {
+  const totalOrders = orders.length;
+  const totalRevenue = orders.reduce((sum, order) => sum + order.totals.grandTotal, 0);
+  const uniqueCustomers = new Set(orders.map(order => order.customer.email));
+  const totalCustomers = uniqueCustomers.size;
+
+  // Simple change calculations (last 30 days vs previous 30 days)
+  const now = new Date();
+  const last30Days = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+  const prev30Days = new Date(last30Days.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+  const recentOrders = orders.filter(order => {
+    const orderDate = order.createdAt.toDate();
+    return orderDate >= last30Days;
+  });
+  const olderOrders = orders.filter(order => {
+    const orderDate = order.createdAt.toDate();
+    return orderDate >= prev30Days && orderDate < last30Days;
+  });
+
+  const recentRevenue = recentOrders.reduce((sum, order) => sum + order.totals.grandTotal, 0);
+  const olderRevenue = olderOrders.reduce((sum, order) => sum + order.totals.grandTotal, 0);
+  const revenueChange = olderRevenue > 0 ? ((recentRevenue - olderRevenue) / olderRevenue * 100) : 0;
+
+  const recentOrderCount = recentOrders.length;
+  const olderOrderCount = olderOrders.length;
+  const ordersChange = olderOrderCount > 0 ? ((recentOrderCount - olderOrderCount) / olderOrderCount * 100) : 0;
+
+  const recentCustomers = new Set(recentOrders.map(order => order.customer.email));
+  const olderCustomers = new Set(olderOrders.map(order => order.customer.email));
+  const recentCustomerCount = recentCustomers.size;
+  const olderCustomerCount = olderCustomers.size;
+  const customersChange = olderCustomerCount > 0 ? ((recentCustomerCount - olderCustomerCount) / olderCustomerCount * 100) : 0;
+
+  const productsChange = 0; // Will be computed from dynamic products fetch
+
+  return {
+    totalRevenue,
+    revenueChange,
+    totalOrders,
+    ordersChange,
+    totalCustomers,
+    customersChange,
+    totalProducts: 0, // Will be set from dynamic fetch
+    productsChange,
+  };
+}
+
+function computeRecentOrders(orders: OrderData[], limit = 4): RecentOrder[] {
+  return orders
+    .sort((a, b) => b.createdAt.toDate().getTime() - a.createdAt.toDate().getTime())
+    .slice(0, limit)
+    .map(order => ({
+      id: order.id || 'ORD' + Math.random().toString(36).substr(2, 5).toUpperCase(),
+      customer: order.customer.name,
+      total: order.totals.grandTotal,
+      status: order.status,
+      date: order.createdAt.toDate().toLocaleDateString(),
+      items: order.items.length,
+    }));
+}
+
 export default function AdminDashboardPage() {
-  const { metrics, recentOrders, lowStockAlerts } = dashboardData
+  const [metrics, setMetrics] = useState<DashboardMetrics>({
+    totalRevenue: 0,
+    revenueChange: 0,
+    totalOrders: 0,
+    ordersChange: 0,
+    totalCustomers: 0,
+    customersChange: 0,
+    totalProducts: 0,
+    productsChange: 0,
+  });
+  const [recentOrders, setRecentOrders] = useState<RecentOrder[]>([]);
+  const [products, setProducts] = useState<ProductData[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        setLoading(true);
+        // Fetch orders
+        const ordersQuery = query(collection(firestore, 'orders'), orderBy('createdAt', 'desc'));
+        const ordersSnapshot = await getDocs(ordersQuery);
+        const orders: OrderData[] = ordersSnapshot.docs.map(doc => ({ id: doc.id, ...(doc.data() as unknown as OrderData) }));
+
+        // Fetch products for dynamic totalProducts
+        const productsQuery = collection(firestore, 'products');
+        const productsSnapshot = await getDocs(productsQuery);
+        const fetchedProducts: ProductData[] = productsSnapshot.docs.map(doc => {
+          const data = doc.data() as unknown as ProductData;
+          const { id: _id, ...rest } = data || {};
+          return { id: doc.id, ...rest };
+        });
+
+        const computedMetrics = {
+          ...computeMetrics(orders),
+          totalProducts: fetchedProducts.length,
+          productsChange: 0, // Can be computed if you have historical data
+        };
+        const computedRecentOrders = computeRecentOrders(orders);
+
+        setMetrics(computedMetrics);
+        setRecentOrders(computedRecentOrders);
+        setProducts(fetchedProducts);
+      } catch (err: any) {
+        setError(err.message || 'Failed to fetch data');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchData();
+  }, []);
+
+  if (loading) {
+    return (
+      <AdminLayout>
+        <div className="flex items-center justify-center min-h-[400px]">
+          <div className="text-center">
+            <RefreshCw className="h-8 w-8 animate-spin mx-auto mb-4 text-muted-foreground" />
+            <p className="text-muted-foreground">Loading dashboard...</p>
+          </div>
+        </div>
+      </AdminLayout>
+    );
+  }
+
+  if (error) {
+    return (
+      <AdminLayout>
+        <div className="flex items-center justify-center min-h-[400px]">
+          <div className="text-center text-red-600">
+            <AlertCircle className="h-8 w-8 mx-auto mb-4" />
+            <p>Error: {error}</p>
+            <Button onClick={() => window.location.reload()}>Retry</Button>
+          </div>
+        </div>
+      </AdminLayout>
+    );
+  }
 
   return (
     <AdminLayout>
@@ -112,32 +258,6 @@ export default function AdminDashboardPage() {
           <h1 className="text-3xl font-bold text-charcoal">Dashboard</h1>
           <p className="text-muted-foreground">Welcome back! Here's what's happening with your store.</p>
         </div>
-
-        {/* Alerts */}
-        {lowStockAlerts.length > 0 && (
-          <Card className="border-orange-200 bg-orange-50">
-            <CardHeader>
-              <CardTitle className="flex items-center text-orange-800">
-                <AlertCircle className="h-5 w-5 mr-2" />
-                Low Stock Alerts
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-2">
-                {lowStockAlerts.map((alert, index) => (
-                  <div key={index} className="flex items-center justify-between">
-                    <span className="text-sm text-orange-700">
-                      {alert.product} - Only {alert.stock} units left
-                    </span>
-                    <Button size="sm" variant="outline" asChild>
-                      <Link href="/admin/products">Restock</Link>
-                    </Button>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        )}
 
         {/* Metrics Grid */}
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
@@ -168,14 +288,6 @@ export default function AdminDashboardPage() {
                   View Orders
                 </Link>
               </Button>
-
-              <Button asChild variant="outline" className="h-auto p-4 flex-col bg-transparent">
-                <Link href="/admin/customers">
-                  <Users className="h-6 w-6 mb-2" />
-                  Manage Customers
-                </Link>
-              </Button>
-
               <Button asChild variant="outline" className="h-auto p-4 flex-col bg-transparent">
                 <Link href="/">
                   <Eye className="h-6 w-6 mb-2" />
@@ -242,5 +354,47 @@ export default function AdminDashboardPage() {
         </Card>
       </div>
     </AdminLayout>
+  )
+}
+
+function MetricCard({
+  title,
+  value,
+  change,
+  icon: Icon,
+  prefix = "",
+}: {
+  title: string
+  value: number
+  change: number
+  icon: React.ElementType
+  prefix?: string
+}) {
+  const isPositive = change >= 0
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+        <CardTitle className="text-sm font-medium">{title}</CardTitle>
+        <Icon className="h-4 w-4 text-muted-foreground" />
+      </CardHeader>
+      <CardContent>
+        <div className="text-2xl font-bold">
+          {prefix}
+          {value.toLocaleString()}
+        </div>
+        <p className="text-xs text-muted-foreground flex items-center mt-1">
+          {isPositive ? (
+            <TrendingUp className="h-3 w-3 mr-1 text-green-600" />
+          ) : (
+            <TrendingDown className="h-3 w-3 mr-1 text-red-600" />
+          )}
+          <span className={isPositive ? "text-green-600" : "text-red-600"}>
+            {isPositive ? "+" : ""}
+            {change.toFixed(1)}%
+          </span>
+          <span className="ml-1">from last month</span>
+        </p>
+      </CardContent>
+    </Card>
   )
 }

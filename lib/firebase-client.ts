@@ -1,6 +1,7 @@
 // /lib/firebase-client.ts
 import { initializeApp, getApps, getApp } from "firebase/app";
 import { getAnalytics, isSupported, type Analytics } from "firebase/analytics";
+import { getFirestore } from "firebase/firestore/lite";
 
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY!,
@@ -14,6 +15,8 @@ const firebaseConfig = {
 
 // Singleton app instance
 export const firebaseApp = getApps().length ? getApp() : initializeApp(firebaseConfig);
+
+export const firestore = getFirestore(firebaseApp);
 
 // Analytics can only run in browser; use a promise to avoid SSR crashes
 export const analyticsPromise: Promise<Analytics | null> = (async () => {

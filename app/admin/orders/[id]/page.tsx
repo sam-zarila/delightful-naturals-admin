@@ -1,97 +1,380 @@
-import React from "react"
+'use client'
+
+import { use, useEffect, useState } from "react"
 import { AdminLayout } from "@/components/admin-layout"
-import AdminOrderDetailsClient from "@/components/admin-order-details.client"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
+import { Input } from "@/components/ui/input"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Search, Eye, Download, Filter, RefreshCw, Edit, Mail, Phone, MapPin, Package, User } from "lucide-react"
+import Link from "next/link"
+import { doc, getDoc, updateDoc } from "firebase/firestore/lite"
+import { firestore } from "@/lib/firebase-client"
 
-interface OrderDetailsPageProps {
-  params: {
-    id: string
-  }
-}
+type Product = {
+  id: string;
+  name: string;
+  price: number; // ZAR
+  currency: 'R';
+  img: string;
+};
 
-type ApiOrder = {
-  order_id: string
-  total: number
-  subtotal?: number
-  shipping?: number
-  tax?: number
-  delivery_method?: string
-  payment_status?: string
-  payment_provider?: string
-  created_at?: string
-  first_name?: string
-  last_name?: string
-  email?: string
-  phone?: string
-  items?: Array<{ quantity: number; price: number; name?: string; volume?: string; image_url?: string }>
-  address_line1?: string
-  address_line2?: string
-  city?: string
-  province?: string
-  postal_code?: string
+const CATALOG: Record<string, Product> = {
+  'growth-100': {
+    id: 'growth-100',
+    name: 'Hair Growth Oil · 100ml',
+    price: 300,
+    currency: 'R',
+    img: '/products/hair-growth-oil-100ml.png',
+  },
+  'detox-60': {
+    id: 'detox-60',
+    name: 'Scalp Detox Oil · 60ml',
+    price: 260,
+    currency: 'R',
+    img: '/products/scalp-detox-oil-60ml.png',
+  },
+};
+
+type OrderData = {
+  customer: {
+    name: string;
+    email: string;
+    phone?: string;
+    shipping: 'courier' | 'pickup';
+    address?: {
+      city: string;
+      province: string;
+      line1: string;
+      line2?: string;
+      postalCode: string;
+    };
+    notes?: string;
+  };
+  items: Array<{
+    id: string;
+    name: string;
+    price: number;
+    qty: number;
+    lineTotal: number;
+  }>;
+  totals: {
+    subtotal: number;
+    shipping: number;
+    grandTotal: number;
+  };
+  status: string;
+  createdAt: any; // Timestamp
+};
+
+type OrderItem = {
+  productId: string;
+  productName: string;
+  quantity: number;
+  price: number;
+  image: string;
 }
 
 type Order = {
   id: string
-  customer: { name: string; email: string; phone?: string }
+  customer: { name: string; email: string; phone?: string; shipping: 'courier' | 'pickup'; notes?: string; address?: { city: string; province: string; line1: string; line2?: string; postalCode: string } }
   date?: string
-  status?: string
+  status: string
   total: number
-  subtotal?: number
-  shipping?: number
-  tax?: number
-  items: Array<{ productId?: string; productName?: string; quantity: number; price: number; image?: string }>
-  shippingAddress: { address?: string; city?: string; province?: string; postalCode?: string; country?: string }
-  paymentMethod?: string
-  trackingNumber?: string
-  notes?: string
+  items: OrderItem[]
+  shippingAddress: { city?: string; province?: string }
+  paymentMethod: string
 }
 
-const API_ENDPOINT = process.env.NEXT_PUBLIC_ORDERS_API || "http://localhost/delightful/orders.php"
-
-async function fetchOrder(id: string): Promise<Order> {
-  const url = `${API_ENDPOINT}?id=${encodeURIComponent(id)}`
-  const res = await fetch(url)
-  if (!res.ok) {
-    if (res.status === 404) throw new Error(`Order ${id} not found`)
-    throw new Error(`API error: ${res.status}`)
+function getStatusColor(status: string) {
+  switch (status) {
+    case "pending":
+      return "bg-yellow-100 text-yellow-800"
+    case "processing":
+      return "bg-blue-100 text-blue-800"
+    case "shipped":
+      return "bg-purple-100 text-purple-800"
+    case "delivered":
+      return "bg-green-100 text-green-800"
+    case "cancelled":
+      return "bg-red-100 text-red-800"
+    default:
+      return "bg-gray-100 text-gray-800"
   }
-  const a: ApiOrder = await res.json()
-
-  const mapped: Order = {
-    id: String(a.order_id),
-    customer: { name: `${a.first_name ?? ""} ${a.last_name ?? ""}`.trim() || (a.email ?? "Unknown"), email: a.email ?? "", phone: a.phone },
-    date: a.created_at ?? undefined,
-    status: (a.payment_status ?? "pending").toLowerCase(),
-    total: a.total ?? 0,
-    subtotal: a.subtotal ?? a.total ?? 0,
-    shipping: a.shipping ?? 0,
-    tax: a.tax ?? 0,
-    items: (a.items ?? []).map((it) => ({ productId: undefined, productName: it.name ?? it.volume ?? "Product", quantity: it.quantity ?? 1, price: it.price ?? 0, image: it.image_url ?? "/placeholder.svg?height=80&width=80" })),
-    shippingAddress: { address: a.address_line1 ?? a.address_line2 ?? undefined, city: a.city ?? undefined, province: a.province ?? undefined, postalCode: a.postal_code ?? undefined, country: undefined },
-    paymentMethod: (a.payment_provider ?? "unknown").toLowerCase(),
-    trackingNumber: undefined,
-    notes: undefined,
-  }
-
-  return mapped
 }
 
-export default async function OrderDetailsPage(props: any) {
-  const { params } = props
-  try {
-    const order = await fetchOrder(params.id)
+export default function OrderDetailsPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = use(params);
 
+  const [order, setOrder] = useState<Order | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [updatingStatus, setUpdatingStatus] = useState(false)
+  const [status, setStatus] = useState('')
+
+  const fetchOrder = async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      const docRef = doc(firestore, 'orders', id)
+      const docSnap = await getDoc(docRef)
+      if (docSnap.exists()) {
+        const data = docSnap.data() as OrderData
+        const customer = data.customer
+        const items = data.items.map((it) => ({
+          productId: it.id,
+          productName: it.name,
+          quantity: it.qty,
+          price: it.price,
+          image: CATALOG[it.id]?.img || '/placeholder.svg?height=80&width=80',
+        }))
+
+        const shippingAddress = customer.shipping === 'courier' && customer.address ? {
+          city: customer.address.city,
+          province: customer.address.province,
+        } : { city: undefined, province: undefined }
+
+        const mappedOrder: Order = {
+          id,
+          customer: { 
+            name: customer.name, 
+            email: customer.email, 
+            phone: customer.phone,
+            shipping: customer.shipping,
+            notes: customer.notes,
+            address: customer.address
+          },
+          date: data.createdAt ? data.createdAt.toDate().toLocaleDateString() : undefined,
+          status: data.status,
+          total: data.totals.grandTotal,
+          items,
+          shippingAddress,
+          paymentMethod: 'paystack',
+        }
+
+        setOrder(mappedOrder)
+        setStatus(data.status)
+      } else {
+        setError('Order not found')
+      }
+    } catch (err: any) {
+      setError(err.message || String(err))
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const updateOrderStatus = async (newStatus: string) => {
+    if (!order) return
+    setUpdatingStatus(true)
+    try {
+      const docRef = doc(firestore, 'orders', id)
+      await updateDoc(docRef, { status: newStatus })
+      setStatus(newStatus)
+      // Update local state
+      setOrder({ ...order, status: newStatus })
+    } catch (err: any) {
+      setError('Failed to update status: ' + (err.message || String(err)))
+    } finally {
+      setUpdatingStatus(false)
+    }
+  }
+
+  useEffect(() => {
+    fetchOrder()
+  }, [id])
+
+  if (loading) {
     return (
       <AdminLayout>
-        {/* Pass pre-fetched order to client component; client won't access route params directly */}
-        <AdminOrderDetailsClient initialOrder={order} orderId={params.id} />
-      </AdminLayout>
-    )
-  } catch (err: any) {
-    return (
-      <AdminLayout>
-        <div className="py-20 text-center text-red-600">Error loading order: {err?.message ?? String(err)}</div>
+        <div className="flex items-center justify-center min-h-[400px]">
+          <div className="text-center">Loading order details...</div>
+        </div>
       </AdminLayout>
     )
   }
+
+  if (error || !order) {
+    return (
+      <AdminLayout>
+        <div className="flex items-center justify-center min-h-[400px]">
+          <div className="text-center text-red-600">Error: {error || 'Order not found'}</div>
+        </div>
+      </AdminLayout>
+    )
+  }
+
+  return (
+    <AdminLayout>
+      <div className="space-y-6">
+        {/* Header */}
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl font-bold text-charcoal">Order #{order.id}</h1>
+            <p className="text-muted-foreground">Order details and fulfillment</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Link href="/admin/orders" className="text-sm text-muted-foreground hover:underline">
+              ← Back to Orders
+            </Link>
+          </div>
+        </div>
+
+        {/* Order Summary */}
+        <div className="grid lg:grid-cols-3 gap-6">
+          {/* Left: Customer Info */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <User className="h-4 w-4" />
+                Customer Information
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="font-medium">Name:</span>
+                  <span>{order.customer.name}</span>
+                </div>
+                <div className="flex items-center gap-2 text-sm">
+                  <Mail className="h-4 w-4 text-muted-foreground" />
+                  <span>{order.customer.email}</span>
+                </div>
+                {order.customer.phone && (
+                  <div className="flex items-center gap-2 text-sm">
+                    <Phone className="h-4 w-4 text-muted-foreground" />
+                    <span>{order.customer.phone}</span>
+                  </div>
+                )}
+                <div className="flex items-center gap-2 text-sm">
+                  <Package className="h-4 w-4 text-muted-foreground" />
+                  <span className="capitalize">{order.customer.shipping}</span>
+                </div>
+              </div>
+
+              {order.customer.address && (
+                <div className="space-y-2 pt-4 border-t">
+                  <h4 className="font-medium flex items-center gap-2">
+                    <MapPin className="h-4 w-4" />
+                    Shipping Address
+                  </h4>
+                  <div className="text-sm space-y-1">
+                    <p>{order.customer.address.line1}</p>
+                    {order.customer.address.line2 && <p>{order.customer.address.line2}</p>}
+                    <p>{order.customer.address.city}, {order.customer.address.province}</p>
+                    <p>{order.customer.address.postalCode}</p>
+                  </div>
+                </div>
+              )}
+
+              {order.customer.notes && (
+                <div className="space-y-2 pt-4 border-t">
+                  <h4 className="font-medium">Notes</h4>
+                  <p className="text-sm text-muted-foreground italic">{order.customer.notes}</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Middle: Status & Totals */}
+          <Card className="lg:col-span-1">
+            <CardHeader>
+              <CardTitle>Order Summary</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-muted-foreground">Date:</span>
+                <span>{order.date}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-muted-foreground">Status:</span>
+                <Badge className={getStatusColor(order.status)}>{order.status}</Badge>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-muted-foreground">Payment:</span>
+                <Badge variant="outline">Paystack</Badge>
+              </div>
+              <div className="space-y-2 pt-4 border-t">
+                <div className="flex justify-between text-sm">
+                  <span>Subtotal</span>
+                  <span>R{order.total - (order.customer.shipping === 'courier' ? 80 : 0)}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span>Shipping</span>
+                  <span>{order.customer.shipping === 'courier' ? 'R80' : 'Free'}</span>
+                </div>
+                <div className="flex justify-between font-bold text-lg border-t pt-2">
+                  <span>Total</span>
+                  <span>R{order.total.toLocaleString()}</span>
+                </div>
+              </div>
+              <div className="pt-4">
+                <Select value={status} onValueChange={(value) => updateOrderStatus(value)}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Update Status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="pending">Pending</SelectItem>
+                    <SelectItem value="processing">Processing</SelectItem>
+                    <SelectItem value="shipped">Shipped</SelectItem>
+                    <SelectItem value="delivered">Delivered</SelectItem>
+                    <SelectItem value="cancelled">Cancelled</SelectItem>
+                  </SelectContent>
+                </Select>
+                {updatingStatus && <p className="text-xs text-muted-foreground mt-1">Updating...</p>}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Right: Items List */}
+          <Card className="lg:col-span-1">
+            <CardHeader>
+              <CardTitle>Items ({order.items.length})</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {order.items.map((item, index) => (
+                <div key={index} className="flex items-center gap-3 p-3 border rounded-lg">
+                  <img src={item.image} alt={item.productName} className="w-12 h-12 rounded object-cover" />
+                  <div className="flex-1">
+                    <p className="font-medium">{item.productName}</p>
+                    <p className="text-sm text-muted-foreground">Qty: {item.quantity}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="font-medium">R{(item.price * item.quantity).toLocaleString()}</p>
+                  </div>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Actions */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Actions</CardTitle>
+            <CardDescription>Quick actions for this order</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" onClick={() => window.open(`mailto:${order.customer.email}?subject=Re: Order #${order.id}`, '_blank')}>
+                <Edit className="mr-2 h-4 w-4" />
+                Send Email
+              </Button>
+              {order.customer.phone && (
+                <Button variant="outline" onClick={() => window.open(`tel:${order.customer.phone}`, '_blank')}>
+                <Phone className="mr-2 h-4 w-4" />
+                Call Customer
+              </Button>
+              )}
+              <Button variant="outline" onClick={fetchOrder} disabled={loading}>
+                <RefreshCw className="mr-2 h-4 w-4" />
+                Refresh
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    </AdminLayout>
+  )
 }
