@@ -291,10 +291,8 @@ export default function AdminProductsPage() {
         <div className="rounded-2xl border bg-emerald-50/60 p-4 flex items-start gap-3">
           <div className="shrink-0 rounded-xl bg-emerald-600 text-white p-2"><ImageIcon className="h-5 w-5"/></div>
           <div>
-            <div className="font-semibold text-emerald-900">Products Admin (Spark compatible)</div>
-            <div className="text-sm text-emerald-900/80">
-              Select images now; they’ll be compressed and stored in Firestore on Save.
-            </div>
+            <div className="font-semibold text-emerald-900">Products Admin </div>
+           
           </div>
         </div>
 

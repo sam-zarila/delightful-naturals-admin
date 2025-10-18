@@ -1,12 +1,15 @@
-import { AdminLayout } from "@/components/admin-layout"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Edit, Mail, Phone, MapPin, Package, User, RefreshCw } from "lucide-react"
-import Link from "next/link"
-import { doc, getDoc, updateDoc } from "firebase/firestore/lite"
-import { firestore } from "@/lib/firebase-client"
+'use client';
+
+import { use, useEffect, useState } from "react";
+import { AdminLayout } from "@/components/admin-layout";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Edit, Mail, Phone, MapPin, Package, User, RefreshCw } from "lucide-react";
+import Link from "next/link";
+import { doc, getDoc, updateDoc } from "firebase/firestore/lite";
+import { firestore } from "@/lib/firebase-client";
 
 type Product = {
   id: string;
@@ -70,117 +73,140 @@ type OrderItem = {
   quantity: number;
   price: number;
   image: string;
-}
+};
 
 type Order = {
-  id: string
-  customer: { name: string; email: string; phone?: string; shipping: 'courier' | 'pickup'; notes?: string; address?: { city: string; province: string; line1: string; line2?: string; postalCode: string } }
-  date?: string
-  status: string
-  total: number
-  items: OrderItem[]
-  shippingAddress: { city?: string; province?: string }
-  paymentMethod: string
-}
+  id: string;
+  customer: { 
+    name: string; 
+    email: string; 
+    phone?: string; 
+    shipping: 'courier' | 'pickup'; 
+    notes?: string; 
+    address?: { city: string; province: string; line1: string; line2?: string; postalCode: string } 
+  };
+  date?: string;
+  status: string;
+  total: number;
+  items: OrderItem[];
+  shippingAddress: { city?: string; province?: string };
+  paymentMethod: string;
+};
 
 function getStatusColor(status: string) {
   switch (status) {
     case "pending":
-      return "bg-yellow-100 text-yellow-800"
+      return "bg-yellow-100 text-yellow-800";
     case "processing":
-      return "bg-blue-100 text-blue-800"
+      return "bg-blue-100 text-blue-800";
     case "shipped":
-      return "bg-purple-100 text-purple-800"
+      return "bg-purple-100 text-purple-800";
     case "delivered":
-      return "bg-green-100 text-green-800"
+      return "bg-green-100 text-green-800";
     case "cancelled":
-      return "bg-red-100 text-red-800"
+      return "bg-red-100 text-red-800";
     default:
-      return "bg-gray-100 text-gray-800"
+      return "bg-gray-100 text-gray-800";
   }
 }
 
-async function fetchOrder(id: string): Promise<Order | null> {
-  try {
-    const docRef = doc(firestore, 'orders', id)
-    const docSnap = await getDoc(docRef)
-    if (docSnap.exists()) {
-      const data = docSnap.data() as OrderData
-      const customer = data.customer
-      const items = data.items.map((it) => ({
-        productId: it.id,
-        productName: it.name,
-        quantity: it.qty,
-        price: it.price,
-        image: CATALOG[it.id]?.img || '/placeholder.svg?height=80&width=80',
-      }))
+export default function OrderDetailsPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = use(params);
 
-      const shippingAddress = customer.shipping === 'courier' && customer.address ? {
-        city: customer.address.city,
-        province: customer.address.province,
-      } : { city: undefined, province: undefined }
+  const [order, setOrder] = useState<Order | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [updatingStatus, setUpdatingStatus] = useState(false);
 
-      return {
-        id,
-        customer: { 
-          name: customer.name, 
-          email: customer.email, 
-          phone: customer.phone,
-          shipping: customer.shipping,
-          notes: customer.notes,
-          address: customer.address
-        },
-        date: data.createdAt ? data.createdAt.toDate().toLocaleDateString() : undefined,
-        status: data.status,
-        total: data.totals.grandTotal,
-        items,
-        shippingAddress,
-        paymentMethod: 'paystack',
+  const fetchOrder = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const docRef = doc(firestore, 'orders', id);
+      const docSnap = await getDoc(docRef);
+      if (docSnap.exists()) {
+        const data = docSnap.data() as OrderData;
+        const customer = data.customer;
+        const items = data.items.map((it) => ({
+          productId: it.id,
+          productName: it.name,
+          quantity: it.qty,
+          price: it.price,
+          image: CATALOG[it.id]?.img || '/placeholder.svg?height=80&width=80',
+        }));
+
+        const shippingAddress = customer.shipping === 'courier' && customer.address ? {
+          city: customer.address.city,
+          province: customer.address.province,
+        } : { city: undefined, province: undefined };
+
+        const mappedOrder: Order = {
+          id,
+          customer: { 
+            name: customer.name, 
+            email: customer.email, 
+            phone: customer.phone,
+            shipping: customer.shipping,
+            notes: customer.notes,
+            address: customer.address
+          },
+          date: data.createdAt ? data.createdAt.toDate().toLocaleDateString() : undefined,
+          status: data.status,
+          total: data.totals.grandTotal,
+          items,
+          shippingAddress,
+          paymentMethod: 'paystack',
+        };
+
+        setOrder(mappedOrder);
+      } else {
+        setError('Order not found');
       }
+    } catch (err: any) {
+      setError(err.message || String(err));
+    } finally {
+      setLoading(false);
     }
-    return null;
-  } catch (err: any) {
-    console.error('Error fetching order:', err);
-    return null;
-  }
-}
+  };
 
-async function updateOrderStatus(id: string, newStatus: string): Promise<boolean> {
-  try {
-    const docRef = doc(firestore, 'orders', id)
-    await updateDoc(docRef, { status: newStatus })
-    return true;
-  } catch (err: any) {
-    console.error('Error updating status:', err);
-    return false;
-  }
-}
+  const updateOrderStatus = async (newStatus: string) => {
+    if (!order) return;
+    setUpdatingStatus(true);
+    try {
+      const docRef = doc(firestore, 'orders', id);
+      await updateDoc(docRef, { status: newStatus });
+      // Update local state immediately for better UX
+      setOrder({ ...order, status: newStatus });
+    } catch (err: any) {
+      setError('Failed to update status: ' + (err.message || String(err)));
+    } finally {
+      setUpdatingStatus(false);
+    }
+  };
 
-export default async function OrderDetailsPage({ params }: { params: Promise<{ id: string }> }) {
-  const resolvedParams = await params;
-  const { id } = resolvedParams;
+  useEffect(() => {
+    fetchOrder();
+  }, [id]);
 
-  const order = await fetchOrder(id);
-
-  if (!order) {
+  if (loading) {
     return (
       <AdminLayout>
         <div className="flex items-center justify-center min-h-[400px]">
-          <div className="text-center text-red-600">Error: Order not found</div>
+          <div className="text-center">Loading order details...</div>
         </div>
       </AdminLayout>
-    )
+    );
   }
 
-  const handleStatusChange = async (newStatus: string) => {
-    const success = await updateOrderStatus(id, newStatus);
-    if (success) {
-      // In a real app, you'd refetch or use state, but since this is server-rendered, reload the page
-      window.location.reload();
-    } else {
-      alert('Failed to update status');
-    }
-  };
+  if (error || !order) {
+    return (
+      <AdminLayout>
+        <div className="flex items-center justify-center min-h-[400px]">
+          <div className="text-center text-red-600">Error: {error || 'Order not found'}</div>
+        </div>
+      </AdminLayout>
+    );
+  }
 
   return (
     <AdminLayout>
@@ -287,7 +313,7 @@ export default async function OrderDetailsPage({ params }: { params: Promise<{ i
                 </div>
               </div>
               <div className="pt-4">
-                <Select value={order.status} onValueChange={handleStatusChange}>
+                <Select value={order.status} onValueChange={updateOrderStatus}>
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
@@ -299,6 +325,7 @@ export default async function OrderDetailsPage({ params }: { params: Promise<{ i
                     <SelectItem value="cancelled">Cancelled</SelectItem>
                   </SelectContent>
                 </Select>
+                {updatingStatus && <p className="text-xs text-muted-foreground mt-1">Updating...</p>}
               </div>
             </CardContent>
           </Card>
@@ -343,7 +370,7 @@ export default async function OrderDetailsPage({ params }: { params: Promise<{ i
                   Call Customer
                 </Button>
               )}
-              <Button variant="outline" onClick={() => window.location.reload()}>
+              <Button variant="outline" onClick={fetchOrder} disabled={loading || updatingStatus}>
                 <RefreshCw className="mr-2 h-4 w-4" />
                 Refresh
               </Button>
@@ -352,5 +379,5 @@ export default async function OrderDetailsPage({ params }: { params: Promise<{ i
         </Card>
       </div>
     </AdminLayout>
-  )
+  );
 }

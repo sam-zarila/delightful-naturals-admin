@@ -1,4 +1,4 @@
-"use client"
+'use client'
 
 import { useState, useEffect } from "react"
 import { AdminLayout } from "@/components/admin-layout"
@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
-import { getProducts, type Product } from "@/lib/products"
+import { getAllProducts, type ProductDoc as Product } from "@/lib/products"
 import { Plus, Search, Edit, Eye, Package, Loader2 } from "lucide-react"
 import Link from "next/link"
 import Image from "next/image"
@@ -26,7 +26,7 @@ export default function AdminProductsPage() {
     try {
       setLoading(true)
       setError(null)
-      const data = await getProducts()
+      const data = await getAllProducts()
       setProducts(data)
     } catch (err) {
       setError("Failed to load products. Please try again.")
@@ -38,7 +38,7 @@ export default function AdminProductsPage() {
 
   const filteredProducts = products.filter((product) =>
     product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    product.slug.toLowerCase().includes(searchTerm.toLowerCase())
+    product.id.toLowerCase().includes(searchTerm.toLowerCase())
   )
 
   return (
@@ -134,7 +134,7 @@ export default function AdminProductsPage() {
               <Card key={product.id} className="overflow-hidden">
                 <div className="aspect-square relative">
                   <Image
-                    src={product.image || "/placeholder.svg"}
+                    src={product.gallery[0] || "/placeholder.svg"}
                     alt={product.name}
                     fill
                     className="object-cover"
@@ -149,30 +149,25 @@ export default function AdminProductsPage() {
                     <Badge variant={product.inStock ? "default" : "secondary"}>
                       {product.inStock ? "In Stock" : "Out of Stock"}
                     </Badge>
-
                   </div>
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-4">
                     <div className="flex items-center justify-between">
                       <span className="text-2xl font-bold">R{product.price}</span>
-                      <div className="flex items-center text-sm text-muted-foreground">
-                        <Package className="mr-1 h-4 w-4" />
-                        Stock: {product.stock_quantity}
-                      </div>
                     </div>
                     <p className="text-sm text-muted-foreground line-clamp-2">
-                      {product.description}
+                      {product.blurb}
                     </p>
                     <div className="flex gap-2">
                       <Button asChild size="sm" className="flex-1">
-                        <Link href={`/admin/products/edit/${product.id}`}>
+                        <Link href="/admin/products/add">
                           <Edit className="mr-2 h-4 w-4" />
                           Edit
                         </Link>
                       </Button>
                       <Button asChild variant="outline" size="sm" className="flex-1 bg-transparent">
-                        <Link href={`/products/${product.slug}`}>
+                        <Link href="/admin/products/add">
                           <Eye className="mr-2 h-4 w-4" />
                           View
                         </Link>
