@@ -1,4 +1,3 @@
-// app/api/admin/products/route.ts
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -42,32 +41,22 @@ export async function POST(req: Request) {
       console.warn("Pre-read failed; proceeding with write:", e);
     }
 
-    // images → Firestore bytes
+    // images → base64 data URIs for gallery
     const images = Array.isArray(body.images) ? body.images : [];
     const gallery = [...existingGallery];
 
     for (const img of images) {
       if (typeof img?.index !== "number" || typeof img?.base64 !== "string" || typeof img?.type !== "string") continue;
 
-      const b64 = img.base64.replace(/^data:[^,]+,/, "");
-      const buffer = Buffer.from(b64, "base64");
-      if (buffer.length > 950 * 1024) {
+      const base64 = img.base64;
+      if (base64.length > 1.3 * 950 * 1024) { // Approx for base64 overhead
         return NextResponse.json(
-          { error: `Image ${img.name || img.index} is too large after compression (> 950KB)` },
+          { error: `Image ${img.name || img.index} is too large (> 950KB encoded)` },
           { status: 413 }
         );
       }
 
-      await ref.collection("images").doc(String(img.index)).set({
-        index: img.index,
-        name: img.name || `image-${img.index}`,
-        mime: img.type || "image/webp",
-        size: buffer.length,
-        updatedAt: Date.now(),
-        data: buffer,
-      });
-
-      gallery[img.index] = `/api/products/${id}/images/${img.index}`;
+      gallery[img.index] = `data:${img.type};base64,${base64}`;
     }
 
     const doc: ProductDoc = {

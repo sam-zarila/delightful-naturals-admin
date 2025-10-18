@@ -1,4 +1,3 @@
-// app/api/admin/products/[id]/route.ts
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -30,8 +29,6 @@ export async function DELETE(_req: Request, ctx: { params: Promise<Params> }) {
   }
 
   const ref = db.collection("products").doc(pid);
-  const imgs = await ref.collection("images").listDocuments();
-  await Promise.all(imgs.map((d) => d.delete()));
   await ref.delete();
 
   return NextResponse.json({ ok: true });

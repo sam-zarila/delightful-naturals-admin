@@ -1,4 +1,4 @@
-"use client";
+'use client';
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
@@ -17,6 +17,9 @@ import {
 
 import type { ProductDoc, ProductID } from "@/lib/product-types";
 import { ALLOWED_PRODUCT_IDS } from "@/lib/product-types";
+import { firestore } from "@/lib/firebase-client"; // Assume this exports the Firestore instance
+import { getDoc, doc, setDoc, deleteDoc } from "firebase/firestore";
+import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage";
 
 const IDS: ProductID[] = [...ALLOWED_PRODUCT_IDS];
 
@@ -60,12 +63,12 @@ const SEEDS: Record<ProductID, Partial<ProductDoc>> = {
 };
 
 // ─── image helpers ───────────────────────────────────────────────────────────
-async function fileToCompressedBase64(
+async function compressImage(
   file: File,
   maxW = 1200,
   maxH = 1200,
   targetMaxBytes = 950 * 1024
-): Promise<{ base64: string; mime: string; blob: Blob }> {
+): Promise<{ blob: Blob; mime: string }> {
   const bitmap = await createImageBitmap(file);
   const { w, h } = (() => {
     const r = bitmap.width / bitmap.height;
@@ -87,9 +90,7 @@ async function fileToCompressedBase64(
       const blob: Blob | null = await new Promise((res) => canvas.toBlob(res, mime, q));
       if (!blob) continue;
       if (blob.size <= targetMaxBytes || q <= 0.5) {
-        const ab = await blob.arrayBuffer();
-        const base64 = btoa(String.fromCharCode(...new Uint8Array(ab)));
-        return { base64, mime, blob };
+        return { blob, mime };
       }
       q -= 0.1;
     }
@@ -114,16 +115,16 @@ export default function AdminProductsPage() {
     howToUse: string[]; benefits: string[]; gallery: string[]; rating: string; reviews: string;
   }>({ name: "", size: "", inStock: true, price: "", blurb: "", howToUse: [""], benefits: [""], gallery: ["","",""], rating: "5", reviews: "0" });
 
-  // keep original filenames for nicer server metadata
+  // keep original files for upload
   const [galleryFiles, setGalleryFiles] = useState<(File | null)[]>([null, null, null]);
-  // compressed images ready to send
-  const [imagesB64, setImagesB64] = useState<({ base64: string; mime: string; name: string } | null)[]>([null,null,null]);
 
   const numericPrice = useMemo(() => Number(form.price || 0), [form.price]);
   const numericRating = useMemo(() => Math.max(0, Math.min(5, Number(form.rating || 0))), [form.rating]);
   const numericReviews = useMemo(() => Math.max(0, Math.floor(Number(form.reviews || 0))), [form.reviews]);
 
   const markDirty = () => setDirty(true);
+
+  const storage = getStorage(); // Client-side Storage instance
 
   const loadAll = async () => {
     setLoadingList(true);
@@ -136,24 +137,23 @@ export default function AdminProductsPage() {
   const loadExisting = async (id: ProductID) => {
     setLoadingItem(true); setDirty(false);
     try {
-      const res = await fetch(`/api/admin/products/${id}`, { cache: "no-store" });
-      if (res.ok) {
-        const doc = (await res.json()) as ProductDoc;
+      const docRef = doc(firestore, 'products', id);
+      const docSnap = await getDoc(docRef);
+      if (docSnap.exists()) {
+        const doc = docSnap.data() as ProductDoc;
         setForm({
           name: doc.name ?? "", size: doc.size ?? "", inStock: !!doc.inStock,
           price: String(doc.price ?? ""), blurb: doc.blurb ?? "",
           howToUse: doc.howToUse?.length ? doc.howToUse : [""],
           benefits: doc.benefits?.length ? doc.benefits : [""],
-          gallery: doc.gallery?.length ? [...doc.gallery, "", "", ""].slice(0, 3) : ["","",""],
+          gallery: doc.gallery?.length ? [...doc.gallery.slice(0, 3), ...Array(3 - doc.gallery.length).fill("")] : ["","",""],
           rating: String(doc.rating ?? "5"), reviews: String(doc.reviews ?? "0"),
         });
         setGalleryFiles([null,null,null]);
-        setImagesB64([null,null,null]);
         toast({ title: "Loaded", description: `Loaded "${id}" from Firestore.` });
       } else {
         setForm({ name:"", size:"", inStock:true, price:"", blurb:"", howToUse:[""], benefits:[""], gallery:["","",""], rating:"5", reviews:"0" });
         setGalleryFiles([null,null,null]);
-        setImagesB64([null,null,null]);
         toast({ title: "Not found", description: `No document for "${id}". Use defaults to seed.` });
       }
     } finally { setLoadingItem(false); }
@@ -165,14 +165,13 @@ export default function AdminProductsPage() {
   const onPickFile = async (file: File | null, idx: number) => {
     if (!file) {
       setGalleryFiles((p)=>{const n=[...p]; n[idx]=null; return n;});
-      setImagesB64((p)=>{const n=[...p]; n[idx]=null; return n;});
       return;
     }
     if (!file.type.startsWith("image/")) { toast({ title:"Invalid file", description:"Please pick an image.", variant:"destructive" }); return; }
     try {
-      const out = await fileToCompressedBase64(file);
-      setGalleryFiles((p)=>{const n=[...p]; n[idx]=file; return n;});
-      setImagesB64((p)=>{const n=[...p]; n[idx]={ base64: out.base64, mime: out.mime, name: file.name }; return n;});
+      const { blob, mime } = await compressImage(file);
+      const newFile = new File([blob], file.name, { type: mime });
+      setGalleryFiles((p)=>{const n=[...p]; n[idx]=newFile; return n;});
       setDirty(true);
       toast({ title: "Image prepared", description: `${file.name} compressed for upload.` });
     } catch (e: any) {
@@ -184,7 +183,20 @@ export default function AdminProductsPage() {
     e.preventDefault();
     setSaving(true);
     try {
-      const payload: Partial<ProductDoc> & { images: { index: number; name: string; type: string; base64: string }[] } = {
+      const gallery = [...form.gallery];
+
+      // Upload new images if selected
+      for (let i = 0; i < galleryFiles.length; i++) {
+        const file = galleryFiles[i];
+        if (file) {
+          const storageRef = ref(storage, `products/${selectedId}/gallery/image-${i}-${file.name}`);
+          await uploadBytes(storageRef, file);
+          const url = await getDownloadURL(storageRef);
+          gallery[i] = url;
+        }
+      }
+
+      const payload: ProductDoc = {
         id: selectedId,
         name: form.name.trim(),
         size: form.size.trim(),
@@ -193,37 +205,26 @@ export default function AdminProductsPage() {
         blurb: form.blurb.trim(),
         howToUse: form.howToUse.map(s=>s.trim()).filter(Boolean),
         benefits: form.benefits.map(s=>s.trim()).filter(Boolean),
-        gallery: form.gallery.map(g=>g.trim()).filter(Boolean), // keeps pasted URLs
+        gallery: gallery.filter(Boolean),
         rating: numericRating,
         reviews: numericReviews,
-        images: imagesB64
-          .map((v, i) => v ? ({ index: i, name: v.name, type: v.mime, base64: v.base64 }) : null)
-          .filter(Boolean) as any,
+        updatedAt: Date.now(),
       };
 
-      const res = await fetch("/api/admin/products", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      const json = await res.json();
-      if (!res.ok || !json?.ok) {
-        toast({ title: "Save failed", description: json?.error || "Try again.", variant: "destructive" });
-        return;
-      }
+      const docRef = doc(firestore, 'products', selectedId);
+      await setDoc(docRef, payload, { merge: true });
 
       toast({
-        title: json.created ? "Product created successfully" : "Product updated successfully",
-        description: `"${selectedId}" has been saved.`,
+        title: "Product saved successfully",
+        description: `"${selectedId}" has been updated.`,
       });
 
       await Promise.all([loadExisting(selectedId), loadAll()]);
       setDirty(false);
       setGalleryFiles([null,null,null]);
-      setImagesB64([null,null,null]);
       router.refresh();
-    } catch {
-      toast({ title: "Save error", description: "Unexpected error occurred.", variant: "destructive" });
+    } catch (err: any) {
+      toast({ title: "Save error", description: err.message || "Unexpected error occurred.", variant: "destructive" });
     } finally {
       setSaving(false);
     }
@@ -233,16 +234,14 @@ export default function AdminProductsPage() {
     if (!confirm(`Delete ${id}? This cannot be undone.`)) return;
     setSaving(true);
     try {
-      const res = await fetch(`/api/admin/products/${id}`, { method: "DELETE" });
-      if (!res.ok) {
-        const j = await res.json().catch(()=>({} as any));
-        toast({ title:"Delete failed", description:j?.error || "Server error.", variant:"destructive" });
-      } else {
-        toast({ title: "Deleted", description: `"${id}" removed from Firestore.` });
-      }
+      const docRef = doc(firestore, 'products', id);
+      await deleteDoc(docRef);
+      toast({ title: "Deleted", description: `"${id}" removed from Firestore.` });
       if (id === selectedId) await loadExisting(selectedId);
       await loadAll();
       router.refresh();
+    } catch (err: any) {
+      toast({ title: "Delete error", description: err.message || "Unexpected error.", variant: "destructive" });
     } finally { setSaving(false); }
   };
 
@@ -266,12 +265,11 @@ export default function AdminProductsPage() {
       blurb: seed.blurb ?? prev.blurb,
       howToUse: seed.howToUse ?? prev.howToUse,
       benefits: seed.benefits ?? prev.benefits,
-      gallery: seed.gallery ? [...seed.gallery, "", "", ""].slice(0, 3) : prev.gallery,
+      gallery: seed.gallery ? [...seed.gallery.slice(0, 3), ...Array(3 - seed.gallery.length).fill("")] : prev.gallery,
       rating: seed.rating != null ? String(seed.rating) : prev.rating,
       reviews: seed.reviews != null ? String(seed.reviews) : prev.reviews,
     }));
     setGalleryFiles([null,null,null]);
-    setImagesB64([null,null,null]);
     setDirty(true);
     toast({ title: "Defaults applied", description: `Seeded content for "${selectedId}".` });
   };
