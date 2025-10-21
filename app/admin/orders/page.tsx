@@ -65,7 +65,7 @@ type OrderData = {
     grandTotal: number;
   };
   status: string;
-  createdAt: any; // Timestamp
+  createdAt: any; // Timestamp, Date, string, or number
 };
 
 type Order = {
@@ -112,6 +112,31 @@ function getPaymentMethodLabel(method: string) {
   }
 }
 
+// Helper function to safely parse dates from Firestore
+function parseFirestoreDate(dateValue: any): Date {
+  if (!dateValue) {
+    return new Date();
+  }
+  
+  // If it's a Firestore Timestamp (has toDate method)
+  if (typeof dateValue.toDate === 'function') {
+    return dateValue.toDate();
+  }
+  
+  // If it's already a Date object
+  if (dateValue instanceof Date) {
+    return dateValue;
+  }
+  
+  // If it's a string or number, try to parse it
+  try {
+    return new Date(dateValue);
+  } catch (error) {
+    console.warn('Failed to parse date:', dateValue, error);
+    return new Date();
+  }
+}
+
 export default function AdminOrdersPage() {
   const [searchTerm, setSearchTerm] = useState("")
   const [statusFilter, setStatusFilter] = useState("all")
@@ -146,8 +171,10 @@ export default function AdminOrdersPage() {
     setLoading(true)
     setError(null)
     try {
-      const q = query(collection(firestore, 'orders'), orderBy('createdAt', 'desc'))
+      const ordersRef = collection(firestore, 'orders')
+      const q = query(ordersRef, orderBy('createdAt', 'desc'))
       const snapshot = await getDocs(q)
+      
       const mapped: Order[] = snapshot.docs.map((doc) => {
         const data = doc.data() as OrderData
         const id = doc.id
@@ -165,6 +192,9 @@ export default function AdminOrdersPage() {
           province: customer.address.province,
         } : { city: undefined, province: undefined }
 
+        // Use the safe date parser instead of direct toDate() call
+        const orderDate = parseFirestoreDate(data.createdAt)
+
         return {
           id,
           customer: { 
@@ -172,9 +202,9 @@ export default function AdminOrdersPage() {
             email: customer.email, 
             phone: customer.phone 
           },
-          date: data.createdAt ? data.createdAt.toDate().toLocaleDateString() : undefined,
-          status: data.status,
-          total: data.totals.grandTotal,
+          date: orderDate.toLocaleDateString(),
+          status: data.status || 'pending',
+          total: data.totals?.grandTotal || 0,
           items,
           shippingAddress,
           shipping: customer.shipping,
@@ -183,6 +213,7 @@ export default function AdminOrdersPage() {
       })
       setOrders(mapped)
     } catch (err: any) {
+      console.error('Error fetching orders:', err)
       setError(err.message || String(err))
     } finally {
       setLoading(false)
@@ -300,50 +331,59 @@ export default function AdminOrdersPage() {
               <div className="text-center py-8 text-red-600">Error loading orders: {error}</div>
             )}
 
-            <div className="space-y-4">
-              {filteredOrders.map((order) => (
-                <div
-                  key={order.id}
-                  className="flex items-center justify-between p-4 border rounded-lg hover:bg-muted/50"
-                >
-                  <div className="flex-1 space-y-2">
-                    <div className="flex items-center gap-4">
-                      <div>
-                        <p className="font-medium">{order.id}</p>
-                        <p className="text-sm text-muted-foreground">{order.customer.name}</p>
+            {!loading && !error && (
+              <div className="space-y-4">
+                {filteredOrders.map((order) => (
+                  <div
+                    key={order.id}
+                    className="flex items-center justify-between p-4 border rounded-lg hover:bg-muted/50"
+                  >
+                    <div className="flex-1 space-y-2">
+                      <div className="flex items-center gap-4">
+                        <div>
+                          <p className="font-medium">{order.id}</p>
+                          <p className="text-sm text-muted-foreground">{order.customer.name}</p>
+                        </div>
+                        <Badge className={getStatusColor(order.status ?? "")}>
+                          {order.status ?? "unknown"}
+                        </Badge>
+                        <Badge variant="outline">
+                          {getPaymentMethodLabel(order.paymentMethod ?? "")}
+                        </Badge>
                       </div>
-                      <Badge className={getStatusColor(order.status ?? "")}>{order.status ?? "unknown"}</Badge>
-                      <Badge variant="outline">{getPaymentMethodLabel(order.paymentMethod ?? "")}</Badge>
+                      <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                        <span>{order.date}</span>
+                        <span>•</span>
+                        <span>
+                          {order.items.length} item{order.items.length !== 1 ? "s" : ""}
+                        </span>
+                        <span>•</span>
+                        <span>
+                          {order.shipping === 'pickup' 
+                            ? 'Pickup' 
+                            : `${order.shippingAddress.city || 'N/A'}, ${order.shippingAddress.province || 'N/A'}`
+                          }
+                        </span>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                      <span>{order.date}</span>
-                      <span>•</span>
-                      <span>
-                        {order.items.length} item{order.items.length !== 1 ? "s" : ""}
-                      </span>
-                      <span>•</span>
-                      <span>
-                        {order.shipping === 'pickup' ? 'Pickup' : `${order.shippingAddress.city || 'N/A'}, ${order.shippingAddress.province || 'N/A'}`}
-                      </span>
+                    <div className="flex items-center gap-4">
+                      <div className="text-right">
+                        <p className="font-medium">R{order.total.toLocaleString()}</p>
+                        <p className="text-sm text-muted-foreground">{order.customer.email}</p>
+                      </div>
+                      <Button asChild size="sm" variant="outline">
+                        <Link href={`/admin/orders/${order.id}`}>
+                          <Eye className="mr-2 h-4 w-4" />
+                          View
+                        </Link>
+                      </Button>
                     </div>
                   </div>
-                  <div className="flex items-center gap-4">
-                    <div className="text-right">
-                      <p className="font-medium">R{order.total.toLocaleString()}</p>
-                      <p className="text-sm text-muted-foreground">{order.customer.email}</p>
-                    </div>
-                    <Button asChild size="sm" variant="outline">
-                      <Link href={`/admin/orders/${order.id}`}>
-                        <Eye className="mr-2 h-4 w-4" />
-                        View
-                      </Link>
-                    </Button>
-                  </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
 
-            {filteredOrders.length === 0 && !loading && (
+            {filteredOrders.length === 0 && !loading && !error && (
               <div className="text-center py-12">
                 <p className="text-muted-foreground">No orders found matching your criteria.</p>
               </div>

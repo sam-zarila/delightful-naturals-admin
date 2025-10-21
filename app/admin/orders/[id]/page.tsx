@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Search, Eye, Download, Filter, RefreshCw, Edit, Mail, Phone, MapPin, Package, User } from "lucide-react"
 import Link from "next/link"
-import { doc, getDoc, updateDoc } from "firebase/firestore/lite"
+import { doc, getDoc, updateDoc } from "firebase/firestore"
 import { firestore } from "@/lib/firebase-client"
 
 type Product = {
