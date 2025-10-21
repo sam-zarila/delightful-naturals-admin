@@ -1,4 +1,4 @@
-"use client"
+'use client'
 
 import { useEffect, useState } from "react"
 import { AdminLayout } from "@/components/admin-layout"
@@ -20,7 +20,7 @@ import {
   RefreshCw,
 } from "lucide-react"
 import Link from "next/link"
-import { collection, getDocs, query, orderBy } from "firebase/firestore/lite"
+import { collection, getDocs, query, orderBy } from "firebase/firestore"
 import { firestore } from "@/lib/firebase-client"
 
 type OrderData = {
@@ -52,7 +52,7 @@ type OrderData = {
     grandTotal: number;
   };
   status: string;
-  createdAt: any; // Timestamp
+  createdAt: any; // Timestamp, Date, string, or number
 };
 
 type ProductData = {
@@ -90,6 +90,31 @@ type RecentOrder = {
   items: number;
 }
 
+// Helper function to safely parse dates from Firestore
+function parseFirestoreDate(dateValue: any): Date {
+  if (!dateValue) {
+    return new Date();
+  }
+  
+  // If it's a Firestore Timestamp (has toDate method)
+  if (typeof dateValue.toDate === 'function') {
+    return dateValue.toDate();
+  }
+  
+  // If it's already a Date object
+  if (dateValue instanceof Date) {
+    return dateValue;
+  }
+  
+  // If it's a string or number, try to parse it
+  try {
+    return new Date(dateValue);
+  } catch (error) {
+    console.warn('Failed to parse date:', dateValue, error);
+    return new Date();
+  }
+}
+
 function getStatusColor(status: string) {
   switch (status) {
     case "pending":
@@ -109,7 +134,7 @@ function getStatusColor(status: string) {
 
 function computeMetrics(orders: OrderData[]): DashboardMetrics {
   const totalOrders = orders.length;
-  const totalRevenue = orders.reduce((sum, order) => sum + order.totals.grandTotal, 0);
+  const totalRevenue = orders.reduce((sum, order) => sum + (order.totals?.grandTotal || 0), 0);
   const uniqueCustomers = new Set(orders.map(order => order.customer.email));
   const totalCustomers = uniqueCustomers.size;
 
@@ -119,16 +144,16 @@ function computeMetrics(orders: OrderData[]): DashboardMetrics {
   const prev30Days = new Date(last30Days.getTime() - 30 * 24 * 60 * 60 * 1000);
 
   const recentOrders = orders.filter(order => {
-    const orderDate = order.createdAt.toDate();
+    const orderDate = parseFirestoreDate(order.createdAt);
     return orderDate >= last30Days;
   });
   const olderOrders = orders.filter(order => {
-    const orderDate = order.createdAt.toDate();
+    const orderDate = parseFirestoreDate(order.createdAt);
     return orderDate >= prev30Days && orderDate < last30Days;
   });
 
-  const recentRevenue = recentOrders.reduce((sum, order) => sum + order.totals.grandTotal, 0);
-  const olderRevenue = olderOrders.reduce((sum, order) => sum + order.totals.grandTotal, 0);
+  const recentRevenue = recentOrders.reduce((sum, order) => sum + (order.totals?.grandTotal || 0), 0);
+  const olderRevenue = olderOrders.reduce((sum, order) => sum + (order.totals?.grandTotal || 0), 0);
   const revenueChange = olderRevenue > 0 ? ((recentRevenue - olderRevenue) / olderRevenue * 100) : 0;
 
   const recentOrderCount = recentOrders.length;
@@ -157,16 +182,23 @@ function computeMetrics(orders: OrderData[]): DashboardMetrics {
 
 function computeRecentOrders(orders: OrderData[], limit = 4): RecentOrder[] {
   return orders
-    .sort((a, b) => b.createdAt.toDate().getTime() - a.createdAt.toDate().getTime())
+    .sort((a, b) => {
+      const dateA = parseFirestoreDate(a.createdAt).getTime();
+      const dateB = parseFirestoreDate(b.createdAt).getTime();
+      return dateB - dateA;
+    })
     .slice(0, limit)
-    .map(order => ({
-      id: order.id || 'ORD' + Math.random().toString(36).substr(2, 5).toUpperCase(),
-      customer: order.customer.name,
-      total: order.totals.grandTotal,
-      status: order.status,
-      date: order.createdAt.toDate().toLocaleDateString(),
-      items: order.items.length,
-    }));
+    .map(order => {
+      const orderDate = parseFirestoreDate(order.createdAt);
+      return {
+        id: order.id || 'ORD' + Math.random().toString(36).substr(2, 5).toUpperCase(),
+        customer: order.customer.name,
+        total: order.totals?.grandTotal || 0,
+        status: order.status,
+        date: orderDate.toLocaleDateString(),
+        items: order.items.length,
+      };
+    });
 }
 
 export default function AdminDashboardPage() {
@@ -190,13 +222,14 @@ export default function AdminDashboardPage() {
       try {
         setLoading(true);
         // Fetch orders
-        const ordersQuery = query(collection(firestore, 'orders'), orderBy('createdAt', 'desc'));
+        const ordersRef = collection(firestore, 'orders');
+        const ordersQuery = query(ordersRef, orderBy('createdAt', 'desc'));
         const ordersSnapshot = await getDocs(ordersQuery);
         const orders: OrderData[] = ordersSnapshot.docs.map(doc => ({ id: doc.id, ...(doc.data() as unknown as OrderData) }));
 
         // Fetch products for dynamic totalProducts
-        const productsQuery = collection(firestore, 'products');
-        const productsSnapshot = await getDocs(productsQuery);
+        const productsRef = collection(firestore, 'products');
+        const productsSnapshot = await getDocs(productsRef);
         const fetchedProducts: ProductData[] = productsSnapshot.docs.map(doc => {
           const data = doc.data() as unknown as ProductData;
           const { id: _id, ...rest } = data || {};
@@ -214,6 +247,7 @@ export default function AdminDashboardPage() {
         setRecentOrders(computedRecentOrders);
         setProducts(fetchedProducts);
       } catch (err: any) {
+        console.error('Fetch error:', err);
         setError(err.message || 'Failed to fetch data');
       } finally {
         setLoading(false);
@@ -243,7 +277,7 @@ export default function AdminDashboardPage() {
           <div className="text-center text-red-600">
             <AlertCircle className="h-8 w-8 mx-auto mb-4" />
             <p>Error: {error}</p>
-            <Button onClick={() => window.location.reload()}>Retry</Button>
+            <Button onClick={() => window.location.reload()} className="mt-4">Retry</Button>
           </div>
         </div>
       </AdminLayout>
