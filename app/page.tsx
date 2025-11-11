@@ -8,13 +8,9 @@ export default function Home() {
   const router = useRouter()
 
   useEffect(() => {
-    if (pathname !== '/admin/dashboard') {
-      router.replace('/admin/dashboard')
+    if (pathname !== '/admin/login') {
+      router.replace('/admin/login')
     }
   }, [pathname, router])
-  return (
-    <div>
-      hi
-    </div>
-  )
+
 }

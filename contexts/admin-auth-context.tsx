@@ -50,7 +50,7 @@ export function AdminAuthProvider({ children }: { children: React.ReactNode }) {
     await new Promise((resolve) => setTimeout(resolve, 1000))
 
     // Mock admin authentication - in real app, this would call your API
-    if (email === "admin@delightfulnaturals.co.za" && password === "admin123") {
+    if (email === "admin@delightfulnaturals.co.za" && password === "admin@delightfulnaturals123") {
       setAdmin(mockAdmin)
       localStorage.setItem("delightful-naturals-admin", JSON.stringify(mockAdmin))
       setIsLoading(false)

@@ -82,9 +82,6 @@ export default function AdminLoginPage() {
             </Button>
           </form>
           <div className="mt-6 text-center text-sm text-muted-foreground">
-            <p>Demo credentials:</p>
-            <p>Email: admin@delightfulnaturals.co.za</p>
-            <p>Password: admin123</p>
           </div>
         </CardContent>
       </Card>
